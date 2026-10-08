@@ -145,6 +145,12 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
     
     const invalidTokens: string[] = [];
 
+    interface ExpoTicket {
+      status: 'ok' | 'error';
+      id?: string;
+      details?: { error?: string };
+    }
+
     // Check immediate ticket errors (like DeviceNotRegistered)
     result.data?.forEach((ticket: ExpoTicket, index: number) => {
       if (ticket.status === 'error' && (ticket.details?.error === 'DeviceNotRegistered' || ticket.details?.error === 'InvalidCredentials')) {
