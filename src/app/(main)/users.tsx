@@ -36,7 +36,7 @@ export default function UsersScreen() {
     if (!snap.exists()) {
       const now = new Date().getTime();
       await setDoc(convRef, {
-        participantIds: [user.uid, otherUser.uid],
+        participantIds: [user.uid, otherUser.uid].sort(),
         createdAt: now
       });
       await syncChatMembers(conversationId, 'direct');

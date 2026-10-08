@@ -84,11 +84,11 @@ Apenas membros reais do chat podem ler ou escrever mensagens. Para mitigar o pro
 **Armazenamento de Fotos (Firebase Storage):**
 - As regras (`storage.rules`) exigem tipagem restrita: apenas arquivos cujo `content-type` corresponda a imagens (`image/*`) e cujo tamanho seja inferior a `5MB` são permitidos.
 - As imagens são armazenadas em `/profiles/{userId}` ou `/groups/`.
-- O lado do cliente implementa o fluxo formal de requisição e tratativa de permissão negativa usando `expo-image-picker` e `expo-image-manipulator` (limitando qualidade a 0.5 para economizar rede).
+- O lado do cliente implementa o fluxo formal de requisição e tratativa de permissão negativa usando `expo-image-picker`.
 
 **Notificações Push (Firebase Cloud Messaging - FCM) e Expo:**
-- O projeto usa `expo-notifications` para se comunicar diretamente com a APNs (Apple) e FCM (Google Android).
-- A configuração dos pacotes nativos para Android reside no arquivo `app.json` (credencial e chave via `google-services.json`). Para iOS reside em `GoogleService-Info.plist` atrelado ao `bundleIdentifier`.
+- O projeto usa `expo-notifications` para se comunicar de forma transparente com a APNs (Apple) e FCM (Google Android).
+- A configuração dos pacotes nativos para envio das Push Notifications requer que as credenciais do Firebase FCM sejam fornecidas à Expo via configuração no painel do Expo.dev ou através de variáveis de ambiente no processo do EAS Build (`EAS Secrets`). Diferente do fluxo "bare", em "managed" (Expo Go ou Development Builds), o envio físico usa as chaves associadas ao **Expo Project ID** (`app.json` atrelado).
 - A geração das notificações é roteada pelo servidor que processa o token único FCM/Expo salvo por dispositivo em `users/{userId}/devices/{deviceId}`.
 - O backend verifica a flag `pushSent`. Para garantir a concorrência, é usada uma transação atômica do RTDB na flag: a operação a tranca no status `pending`, dispara a solicitação ao `exp.host` e caso falhe na validação/integração com a Expo, dá um **rollback imediato e limpo** para permitir uma tentativa subsequente.
 
