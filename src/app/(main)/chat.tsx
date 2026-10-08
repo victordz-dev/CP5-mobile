@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { listenToMessages, sendMessage } from '../../services/chatService';
 import { ChatMessage } from '../../types/chat';
 import { getUserProfile } from '../../services/userService';
-import { getDoc, doc, getDocs, query, collection, where } from 'firebase/firestore';
+import { getDoc, doc, getDocs, query, collection, where, documentId } from 'firebase/firestore';
 import { firestore } from '../../services/firebase';
 
 export default function ChatScreen() {
@@ -59,7 +59,7 @@ export default function ChatScreen() {
         if (groupSnap.exists()) {
           const mIds = groupSnap.data().memberIds || [];
           if (mIds.length === 0) return;
-          const usersSnap = await getDocs(query(collection(firestore, 'users'), where('uid', 'in', mIds)));
+          const usersSnap = await getDocs(query(collection(firestore, 'users'), where(documentId(), 'in', mIds)));
           const loadedMembers: {uid: string, name: string}[] = [];
           usersSnap.forEach(d => loadedMembers.push(d.data() as {uid: string, name: string}));
           setChatMembers(loadedMembers);

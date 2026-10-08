@@ -1,4 +1,4 @@
-# CP5 - Aplicativo de Chat com Grupos e Notificações Push
+# CP5 - Chat Mobile com Push Notifications
 
 **Integrantes (Grupo):**
 - Guilherme Oliveira - 558797
@@ -11,66 +11,62 @@
 
 ## 📱 Sobre o Projeto
 
-Este aplicativo é um chat multiplataforma (iOS/Android) desenvolvido com **React Native (Expo)**, **Firebase** e um backend em **Node.js (Express)**. Ele suporta:
-- Chat em Tempo Real com Realtime Database.
-- Gerenciamento e Perfis no Firestore.
-- Upload de Fotos (Perfil e Grupo) via Firebase Storage.
-- Autenticação por E-mail/Senha.
-- Criação e Moderação de Grupos de Chat, com limite de usuários protegido contra concorrência (transações).
-- Regras de segurança rigorosas para leitura/escrita.
-- Push Notifications enviadas por API Rest Node.js com proteção de idempotência e tipagem segura.
+Este aplicativo é um chat multiplataforma (iOS/Android) desenvolvido com **React Native (Expo)**, **Firebase** e um backend em **Node.js (Express)**.
+- **Backend:** A API valida a pertencao aos grupos, assegurando que usuarios mal intencionados nao disparem push notifications indesejadas.
+- **Autenticacao & Tempo Real:** Usa Auth, Firestore e RTDB com regras estritas.
+- **Seguranca de Dados:** Não salva dados sensíveis de celular ou nascimento, protegendo a privacidade. 
 
 ---
 
 ## 🛠 Como Executar o App (Client)
 
 1. Entre na pasta raiz do projeto.
-2. Instale as dependências: `npm install`
-3. Configure as variáveis de ambiente em um arquivo `.env` na raiz:
+2. Instale as dependencias: `npm install`
+3. Configure as variaveis de ambiente em um arquivo `.env` na raiz:
    ```env
-   EXPO_PUBLIC_API_URL="http://localhost:3000" # Ou a URL do Render após o deploy
+   EXPO_PUBLIC_API_URL="https://cp5-mobile.onrender.com"
    ```
 4. Inicie o Expo: `npx expo start`
-5. Pressione `a` para abrir no emulador Android, `i` para iOS, ou escaneie o QR Code no Expo Go.
 
 ---
 
-## 🚀 Como Executar a API (Server)
+## 🚀 Como Executar a API Localmente
 
-A API é construída em Express com TypeScript. Ela faz as validações críticas de banco de dados cruzadas (verificar membros do Firestore antes de enviar push de uma mensagem do RTDB).
-
-1. Navegue até a pasta `server/`: `cd server`
-2. Instale as dependências: `npm install`
-3. Crie um arquivo `server/.env` contendo suas variáveis do Firebase (`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`).
+1. Navegue ate a pasta `server/`: `cd server`
+2. Instale as dependencias: `npm install`
+3. Crie um arquivo `server/.env` contendo suas variaveis do Firebase (`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`).
 4. Compile o TypeScript: `npx tsc`
-5. Inicie o servidor: `npm start` (ou `npm run dev` para nodemon).
-6. A API também conta com health check no endpoint `/`.
+5. Inicie o servidor: `npm start`
+6. A API responde no endpoint de health check: `GET /`
 
 ---
 
-A API já foi publicada no Render!
-- URL Base HTTPS: **https://cp5-mobile.onrender.com**
-- Health check (GET `/`): Verifica se o servidor está no ar e respondendo.
+## 🌐 API Publicada (Render)
 
-Para testar localmente, o processo de deploy foi realizado usando `render.yaml`. Basta colocar a URL pública acima no `.env` do Expo.
+A API oficial ja se encontra publicada no Render (producao) e com HTTPS.
+- **URL Base:** `https://cp5-mobile.onrender.com`
+- **Health check:** Acesse `https://cp5-mobile.onrender.com/` para verificar se o servidor esta no ar.
+
+Basta colocar a URL publica acima no `.env` do Expo (`EXPO_PUBLIC_API_URL`) para o app usa-la, dispensando a necessidade de iniciar o servidor localmente para testar.
+
 ---
 
-## 🔒 Regras de Segurança e Decisões Arquiteturais
+## 🔒 Regras de Seguranca e Arquitetura
 
 **Firestore:**
-Apenas usuários autenticados têm acesso. A escrita e edição de Grupos são fortemente travadas pela regra: `allow update: if isAuthenticated() && request.auth.uid == resource.data.ownerId`, impedindo que qualquer membro burle os limites, altere fotos ou nomes se não for o dono. Uma exceção segura foi implementada no Backend para manter as validações consistentes.
+Apenas usuarios autenticados tem acesso. As criacoes, edicoes e exclusoes de Grupos sao estritamente travadas (`ownerId`, tamanho do grupo). A edicao por parte dos membros ocorre unicamente no momento de sair do grupo, de forma atletica.
 
 **Realtime Database:**
-Apenas membros reais do chat podem ler ou escrever as mensagens, através da restrição combinada: `.read: root.child('chat_members').child($conversationId).child(auth.uid).val() === true`. Além disso, a regra `.validate` garante que `senderId` é o dono da mensagem e que não há textos vazios.
+Apenas membros reais do chat podem ler ou escrever as mensagens, gracas a verificacao em espelho no RTDB e Firestore. Apenas o backend tem acesso Admin absoluto e serve de ponte segura para insercao via `/sync-members`.
 
-**Armazenamento de Estado de Concorrência:**
-A atualização do limite de grupos é executada no cliente usando `runTransaction` no Firestore, impedindo que acessos simultâneos causem Race Conditions e deixem um grupo com 11/10 usuários.
+**Notificacoes Push e Idempotencia:**
+O backend verifica a flag `pushSent`. Para garantir a concorrencia, e usada uma transacao atomica do RTDB na flag: a operacao a tranca no status `true`, dispara a solicitacao ao `exp.host` e caso falhe na integracao com a Expo, da um rollback automatico.
 
-**Notificações Push (Idempotência e Segurança):**
-O servidor verifica no Realtime Database se a notificação para a referida mensagem já foi enviada (`pushSent: true`). Se o cliente fizer múltiplas chamadas, o servidor bloqueia as subsequentes. O token do remetente é atestado validando o JWT com o Firebase Admin Auth (`Authorization: Bearer <ID_TOKEN>`).
+**Receipts da Expo:**
+Ao disparar a notificacao (`/push/send`), a API extrai os tickets contendo possiveis erros de Devices Desregistrados ou Inativos, limpando silenciosamente o Firebase de tokens irrelevantes.
 
 ---
 
-**Evidência de Funcionamento (Push):**
-*(Substitua por um print da tela do celular recebendo a notificação)*
+**Evidencia de Funcionamento (Push):**
+*(O arquivo da print final da avaliacao sera colocado aqui)*
 ![Push Notification Evidence](https://via.placeholder.com/400x200?text=Evidencia+de+Push+Aqui)

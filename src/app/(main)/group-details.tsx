@@ -147,22 +147,22 @@ export default function GroupDetailsScreen() {
           
           <Text style={styles.sectionTitle}>Membros do Grupo</Text>
           {members.map(m => (
-            <View key={m.uid} style={styles.userRow}>
+            <TouchableOpacity key={m.uid} style={styles.userRow} onPress={() => router.push(`/(main)/profile?userId=${m.uid}`)}>
               <Text>{m.name} {m.uid === group.ownerId ? '(Dono)' : ''}</Text>
               {isOwner && m.uid !== group.ownerId && (
                 <Button title="Remover" color="red" onPress={() => handleRemoveMember(m.uid)} />
               )}
-            </View>
+            </TouchableOpacity>
           ))}
 
           {isOwner && vagas > 0 && (
             <>
               <Text style={styles.sectionTitle}>Adicionar Membros</Text>
               {allUsers.filter(u => !group.memberIds.includes(u.uid)).map(m => (
-                <View key={m.uid} style={styles.userRow}>
+                <TouchableOpacity key={m.uid} style={styles.userRow} onPress={() => router.push(`/(main)/profile?userId=${m.uid}`)}>
                   <Text>{m.name}</Text>
                   <Button title="Adicionar" onPress={() => handleAddMember(m.uid)} />
-                </View>
+                </TouchableOpacity>
               ))}
             </>
           )}

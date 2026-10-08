@@ -1,5 +1,6 @@
 import { ref, push, set, onValue, off, query, orderByChild } from 'firebase/database';
 import { database, auth } from './firebase';
+import Constants from 'expo-constants';
 import { ChatMessage } from '../types/chat';
 
 export const sendMessage = async (message: Omit<ChatMessage, 'id' | 'createdAt'>) => {
@@ -17,7 +18,7 @@ export const sendMessage = async (message: Omit<ChatMessage, 'id' | 'createdAt'>
   // After saving, trigger API to send push notification
   try {
     const token = await auth.currentUser?.getIdToken();
-    const response = await fetch(process.env.EXPO_PUBLIC_API_URL + '/notifications/messages', {
+    const response = await fetch((Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL) + '/notifications/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -59,7 +60,7 @@ export const generateDirectConversationId = (uid1: string, uid2: string) => {
 
 export const syncChatMembers = async (conversationId: string, type: 'direct' | 'group') => {
   const token = await auth.currentUser?.getIdToken();
-  await fetch(process.env.EXPO_PUBLIC_API_URL + '/sync-members', {
+  const res = await fetch((Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL) + '/sync-members', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -67,4 +68,8 @@ export const syncChatMembers = async (conversationId: string, type: 'direct' | '
     },
     body: JSON.stringify({ conversationId, type })
   });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Falha ao sincronizar membros');
+  }
 };
