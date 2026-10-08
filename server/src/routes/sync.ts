@@ -56,4 +56,35 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
   }
 });
 
+router.get('/users', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const snap = await adminFirestore.collection('users').get();
+    // Return only public info to populate the new chat list securely
+    const users = snap.docs.map(doc => {
+      const data = doc.data();
+      return { uid: doc.id, name: data.name, email: data.email, photoUrl: data.photoUrl };
+    });
+    res.status(200).json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/users/profiles', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  const { userIds } = req.body;
+  if (!userIds || !Array.isArray(userIds)) return;
+  try {
+    const users: any[] = [];
+    for (const uid of userIds) {
+      const snap = await adminFirestore.collection('users').doc(uid).get();
+      if (snap.exists) {
+        users.push({ uid: snap.id, ...snap.data() });
+      }
+    }
+    res.status(200).json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

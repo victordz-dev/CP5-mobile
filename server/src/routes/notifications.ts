@@ -37,7 +37,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       if (currentData.pushSent) {
         return; // Abort transaction if already sent or pending
       }
-      currentData.pushSent = true; // Mark as sent/pending to acquire lock
+      currentData.pushSent = 'pending'; // Mark as sent/pending to acquire lock
       return currentData;
     });
 
@@ -59,6 +59,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
     } else if (messageData.conversationType === 'group') {
       const groupSnap = await adminFirestore.doc(`groups/${conversationId}`).get();
       if (!groupSnap.exists) {
+        await messageRef.update({ pushSent: false });
         res.status(404).json({ error: 'Group not found' });
         return;
       }
@@ -69,6 +70,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
 
     // Validate sender belongs to conversation
     if (!allParticipants.includes(user.uid)) {
+      await messageRef.update({ pushSent: false });
       res.status(403).json({ error: 'Sender does not belong to the conversation' });
       return;
     }
@@ -167,6 +169,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       }
     }
 
+    await messageRef.update({ pushSent: true });
     res.status(200).json({ success: true, result });
   } catch (error) {
     console.error('Error sending push', error);

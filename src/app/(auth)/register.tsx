@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, TextInput, Button, StyleSheet, ScrollView, Image } from 'react-native';
+import { TextInput, Button, StyleSheet, ScrollView, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { register } from '../../services/authService';
 import { createUserProfile } from '../../services/userService';
@@ -11,6 +11,8 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [birthDate, setBirthDate] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   
   const [error, setError] = useState('');
@@ -30,7 +32,7 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (!name || !email || !password) {
+    if (!name || !email || !password || !phoneNumber || !birthDate) {
       setError('Preencha todos os campos.');
       return;
     }
@@ -54,6 +56,8 @@ export default function RegisterScreen() {
       await createUserProfile(uid, {
         name,
         email,
+        phoneNumber,
+        birthDate,
         photoUrl,
       });
 
@@ -72,6 +76,8 @@ export default function RegisterScreen() {
       
       <TextInput style={styles.input} placeholder="Nome" value={name} onChangeText={setName} />
       <TextInput style={styles.input} placeholder="E-mail" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+      <TextInput style={styles.input} placeholder="Celular" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" />
+      <TextInput style={styles.input} placeholder="Data de Nascimento" value={birthDate} onChangeText={setBirthDate} />
       
       <TextInput style={styles.input} placeholder="Senha" value={password} onChangeText={setPassword} secureTextEntry />
       <TextInput style={styles.input} placeholder="Confirmar Senha" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry />

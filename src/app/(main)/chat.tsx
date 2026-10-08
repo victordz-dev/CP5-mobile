@@ -5,8 +5,9 @@ import { useAuth } from '../../hooks/useAuth';
 import { listenToMessages, sendMessage } from '../../services/chatService';
 import { ChatMessage } from '../../types/chat';
 import { getUserProfile } from '../../services/userService';
-import { getDoc, doc, getDocs, query, collection, where, documentId } from 'firebase/firestore';
-import { firestore } from '../../services/firebase';
+import { getDoc, doc, documentId } from 'firebase/firestore';
+import { firestore, auth } from '../../services/firebase';
+import Constants from 'expo-constants';
 
 export default function ChatScreen() {
   const { user } = useAuth();
@@ -36,18 +37,24 @@ export default function ChatScreen() {
   useEffect(() => {
     if (type !== 'group') return;
     const loadAuthors = async () => {
-      const newNames: Record<string, string> = { ...authorNames };
-      let changed = false;
-      for (const msg of messages) {
-        if (!newNames[msg.senderId]) {
-          const profile = await getUserProfile(msg.senderId);
-          if (profile) {
-            newNames[msg.senderId] = profile.name;
-            changed = true;
+      setAuthorNames(prev => {
+        const updateAuthors = async () => {
+          let newNames = { ...prev };
+          let changed = false;
+          for (const msg of messages) {
+            if (!newNames[msg.senderId]) {
+              const profile = await getUserProfile(msg.senderId);
+              if (profile) {
+                newNames[msg.senderId] = profile.name;
+                changed = true;
+              }
+            }
           }
-        }
-      }
-      if (changed) setAuthorNames(newNames);
+          if (changed) setAuthorNames(newNames);
+        };
+        updateAuthors();
+        return prev;
+      });
     };
     loadAuthors();
   }, [messages, type]);
@@ -59,10 +66,17 @@ export default function ChatScreen() {
         if (groupSnap.exists()) {
           const mIds = groupSnap.data().memberIds || [];
           if (mIds.length === 0) return;
-          const usersSnap = await getDocs(query(collection(firestore, 'users'), where(documentId(), 'in', mIds)));
-          const loadedMembers: {uid: string, name: string}[] = [];
-          usersSnap.forEach(d => loadedMembers.push(d.data() as {uid: string, name: string}));
-          setChatMembers(loadedMembers);
+          const apiUrl = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL;
+          const token = await auth.currentUser?.getIdToken();
+          const usersRes = await fetch(`${apiUrl}/sync-members/users/profiles`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ userIds: mIds })
+          });
+          if (usersRes.ok) {
+            const loadedMembers = await usersRes.json();
+            setChatMembers(loadedMembers);
+          }
         }
       };
       fetchMembers();
@@ -120,7 +134,7 @@ export default function ChatScreen() {
     } else if (type === 'group') {
       router.push(`/(main)/group-details?id=${id}`);
     }
-  }, [type, otherUserId, router]);
+  }, [type, otherUserId, router, id]);
 
   const sortedMessages = useMemo(() => {
     return [...messages].sort((a, b) => a.createdAt - b.createdAt);

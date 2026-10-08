@@ -37,6 +37,8 @@ export default function ProfileScreen() {
       <Image source={{ uri: profile.photoUrl || 'https://via.placeholder.com/150' }} style={styles.avatar} />
       <Text style={styles.name}>{profile.name}</Text>
       <Text style={styles.info}>E-mail: {profile.email}</Text>
+      <Text style={styles.info}>Celular: {profile.phoneNumber || 'Não informado'}</Text>
+      <Text style={styles.info}>Nascimento: {profile.birthDate || 'Não informado'}</Text>
     </View>
   );
 }
