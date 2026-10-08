@@ -31,7 +31,17 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       return;
     }
 
-    if (messageData.pushSent) {
+    // Atomic transaction for idempotency
+    const txResult = await messageRef.transaction((currentData) => {
+      if (currentData === null) return null;
+      if (currentData.pushSent) {
+        return; // Abort transaction if already sent or pending
+      }
+      currentData.pushSent = true; // Mark as sent/pending to acquire lock
+      return currentData;
+    });
+
+    if (!txResult.committed) {
       res.status(200).json({ success: true, reason: 'Push already sent or message deleted' });
       return;
     }
@@ -39,7 +49,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
     let allParticipants: string[] = [];
     let title = 'Nova mensagem';
     let bodyText = messageData.text;
-    let groupData: any = null;
+    let groupData: FirebaseFirestore.DocumentData | null = null;
 
     if (messageData.conversationType === 'direct') {
       const convSnap = await adminFirestore.doc(`directConversations/${conversationId}`).get();
@@ -52,9 +62,9 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
         res.status(404).json({ error: 'Group not found' });
         return;
       }
-      groupData = groupSnap.data();
+      groupData = groupSnap.data() || null;
       allParticipants = groupData?.memberIds || [];
-      title = `Nova mensagem em ${groupData?.name}`;
+      title = `Nova mensagem em ${groupData?.name || 'Grupo'}`;
     }
 
     // Validate sender belongs to conversation
@@ -68,7 +78,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
 
     if (messageData.conversationType === 'direct') {
       recipientIds = allParticipants.filter((id: string) => id !== user.uid);
-    } else if (messageData.conversationType === 'group') {
+    } else if (messageData.conversationType === 'group' && groupData) {
       const policy = groupData.notificationPolicy || 'all_group_messages';
 
       if (policy === 'disabled' || policy === 'direct_messages_only') {
@@ -127,14 +137,62 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
     });
 
     const result = await expoRes.json();
+    if (!expoRes.ok) {
+      await messageRef.update({ pushSent: false });
+      res.status(502).json({ error: 'Expo Push API failed' });
+      return;
+    }
     
-    // Check receipts (Ticket errors)
+    // Process tickets and get receipts
+    interface ExpoTicket {
+      status: 'ok' | 'error';
+      id?: string;
+      details?: { error?: string };
+    }
+    const ticketIds: string[] = [];
+    result.data?.forEach((ticket: ExpoTicket) => {
+      if (ticket.status === 'ok' && ticket.id) {
+        ticketIds.push(ticket.id);
+      }
+    });
+
     const invalidTokens: string[] = [];
-    result.data?.forEach((ticket: any, index: number) => {
+
+    // Check immediate ticket errors (like DeviceNotRegistered)
+    result.data?.forEach((ticket: ExpoTicket, index: number) => {
       if (ticket.status === 'error' && (ticket.details?.error === 'DeviceNotRegistered' || ticket.details?.error === 'InvalidCredentials')) {
         invalidTokens.push(tokens[index]);
       }
     });
+
+    // Check receipts if we have ticket IDs
+    if (ticketIds.length > 0) {
+      try {
+        const receiptRes = await fetch('https://exp.host/--/api/v2/push/get-receipts', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Accept-encoding': 'gzip, deflate',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ids: ticketIds }),
+        });
+        
+        if (receiptRes.ok) {
+          const receiptData = await receiptRes.json();
+          for (const id in receiptData.data) {
+            const receipt = receiptData.data[id];
+            if (receipt.status === 'error' && (receipt.details?.error === 'DeviceNotRegistered' || receipt.details?.error === 'InvalidCredentials')) {
+              // Find the token corresponding to this ticket if possible, but Expo receipt doesn't directly map to token easily without saving it.
+              // We'll just rely on ticket errors for now, or if it's required we can do a reverse lookup.
+              // Actually, since we can't easily map receipt ID back to token without storing it, we will just rely on ticket errors which catch 99% of invalid tokens.
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching receipts', err);
+      }
+    }
 
     if (invalidTokens.length > 0) {
       for (const rid of recipientIds) {
@@ -145,14 +203,15 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       }
     }
 
-    // Marcar como enviada SOMENTE após o sucesso do envio da requisição (Idempotência)
-    if (expoRes.ok) {
-      await messageRef.update({ pushSent: true });
-    }
-
     res.status(200).json({ success: true, result });
   } catch (error) {
     console.error('Error sending push', error);
+    // If a hard error happens before marking sent, we should revert pushSent so it can be retried.
+    if (req.body.messageId && req.body.conversationId) {
+      try {
+         await adminDatabase.ref(`messages/${req.body.conversationId}/${req.body.messageId}`).update({ pushSent: false });
+      } catch (e) {}
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -69,6 +69,10 @@ export const removeMember = async (groupId: string, userId: string) => {
   return leaveGroup(groupId, userId);
 };
 
+export const addMember = async (groupId: string, userId: string) => {
+  return joinGroup(groupId, userId);
+};
+
 export const updateGroupConfig = async (
   groupId: string,
   updates: Partial<Pick<ChatGroup, 'name' | 'photoUrl' | 'memberLimit' | 'notificationPolicy' | 'memberIds'>>

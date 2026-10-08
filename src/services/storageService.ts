@@ -22,7 +22,7 @@ export const uploadImageAsync = async (uri: string, path: string): Promise<strin
   await uploadBytes(fileRef, blob);
 
   // We're done with the blob, close and release it
-  (blob as any).close();
+  (blob as unknown as { close: () => void }).close();
 
   return await getDownloadURL(fileRef);
 };

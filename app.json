@@ -7,7 +7,8 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.victordz.cp5"
     },
     "android": {
       "adaptiveIcon": {
@@ -35,7 +36,8 @@
           "photosPermission": "O aplicativo acessa suas fotos para permitir que você escolha uma imagem de perfil e do grupo."
         }
       ],
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-notifications"
     ],
     "scheme": "cp5"
   }

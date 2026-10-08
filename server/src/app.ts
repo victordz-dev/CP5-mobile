@@ -14,8 +14,8 @@ app.use(express.json());
 app.use('/notifications', notificationsRouter);
 app.use('/sync-members', syncRouter);
 
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+app.get('/', (req, res) => {
+  res.status(200).json({ status: 'ok', service: 'CP5 API', timestamp: Date.now() });
 });
 
 const PORT = process.env.PORT || 3000;

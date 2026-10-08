@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { doc, setDoc } from 'firebase/firestore';
 import { firestore } from './firebase';
+import Constants from 'expo-constants';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -38,7 +39,7 @@ export async function registerForPushNotificationsAsync(userId: string) {
       return;
     }
     token = (await Notifications.getExpoPushTokenAsync({
-      projectId: process.env.EXPO_PUBLIC_PROJECT_ID // Optional if app.json has projectId
+      projectId: Constants.expoConfig?.extra?.eas?.projectId || '8b9f0a21-c121-4f3b-b2f5-b3e248cd9b82'
     })).data;
   } else {
     console.warn('Must use physical device for Push Notifications');

@@ -6,7 +6,7 @@ import { firestore } from '../../services/firebase';
 import { ChatGroup, NotificationPolicy } from '../../types/group';
 import { ChatUser } from '../../types/user';
 import { useAuth } from '../../hooks/useAuth';
-import { updateGroupConfig, removeMember, leaveGroup } from '../../services/groupService';
+import { updateGroupConfig, removeMember, leaveGroup, addMember } from '../../services/groupService';
 import { getAllUsers } from '../../services/userService';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { Loading } from '../../components/Loading';
@@ -97,7 +97,8 @@ export default function GroupDetailsScreen() {
       
       setGroup({ ...group, name: editName, photoUrl, memberLimit: newLimit, notificationPolicy: editPolicy });
       setEditing(false);
-    } catch (e: any) {
+    } catch (err) {
+      const e = err as Error;
       setError(e.message);
     } finally {
       setLoading(false);
@@ -107,13 +108,15 @@ export default function GroupDetailsScreen() {
   const handleAddMember = async (userId: string) => {
     if (vagas <= 0) return alert('Sem vagas');
     try {
-      const newIds = [...group.memberIds, userId];
-      await updateGroupConfig(group.id, { memberIds: newIds } as any); // Force bypass type if needed, but actually the function might not support memberIds update.
-      // Wait, groupService needs an addMember function or updateGroupConfig doesn't do memberIds?
-      // Our firestore rule allows owner to update memberIds.
-      alert('Recurso a ser integrado (precisa usar runTransaction para concorrência).');
-    } catch (e) {
-      console.log(e);
+      await addMember(group.id, userId);
+      const m = allUsers.find(u => u.uid === userId);
+      if (m) {
+        setMembers([...members, m]);
+        setGroup({ ...group, memberIds: [...group.memberIds, userId] });
+      }
+    } catch (err) {
+      const e = err as Error;
+      alert(e.message);
     }
   };
 
@@ -152,11 +155,27 @@ export default function GroupDetailsScreen() {
             </View>
           ))}
 
+          {isOwner && vagas > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Adicionar Membros</Text>
+              {allUsers.filter(u => !group.memberIds.includes(u.uid)).map(m => (
+                <View key={m.uid} style={styles.userRow}>
+                  <Text>{m.name}</Text>
+                  <Button title="Adicionar" onPress={() => handleAddMember(m.uid)} />
+                </View>
+              ))}
+            </>
+          )}
+
           {!isOwner && (
             <Button title="Sair do Grupo" color="red" onPress={async () => {
               if(group.memberIds.length <= 2) return alert('Impossível sair, mínimo 2 membros.');
-              await leaveGroup(group.id, user!.uid);
-              router.replace('/(main)/conversations');
+              try {
+                await leaveGroup(group.id, user!.uid);
+                router.replace('/(main)/conversations');
+              } catch(err) {
+                alert('Erro ao sair do grupo');
+              }
             }} />
           )}
         </>

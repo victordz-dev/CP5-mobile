@@ -41,24 +41,18 @@ A API é construída em Express com TypeScript. Ela faz as validações crítica
 
 1. Navegue até a pasta `server/`: `cd server`
 2. Instale as dependências: `npm install`
-3. Verifique o arquivo `server/.env` (já possui as credenciais Admin SDK configuradas).
+3. Crie um arquivo `server/.env` contendo suas variáveis do Firebase (`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`).
 4. Compile o TypeScript: `npx tsc`
 5. Inicie o servidor: `npm start` (ou `npm run dev` para nodemon).
-6. A API iniciará em `http://localhost:3000`.
+6. A API também conta com health check no endpoint `/`.
 
 ---
 
-## 🌐 Como Fazer o Deploy da API no Render (Para o 10!)
+A API já foi publicada no Render!
+- URL Base HTTPS: **https://cp5-mobile.onrender.com**
+- Health check (GET `/`): Verifica se o servidor está no ar e respondendo.
 
-Para cumprir o requisito de URL pública, criamos um arquivo `render.yaml`.
-1. Faça o commit de todo este código no seu repositório do **GitHub** (exceto os arquivos `.env`).
-2. Crie uma conta no [Render](https://render.com).
-3. No Dashboard do Render, clique em **New** > **Blueprint**.
-4. Conecte o repositório do seu GitHub.
-5. Ele vai ler o `render.yaml` e criar o Web Service automaticamente!
-6. Após criado, vá na aba **Environment** do serviço no Render e cole as 3 variáveis do seu Firebase Admin (ID, Email e Private Key).
-7. Copie a URL pública (ex: `https://cp5-api-xxxxx.onrender.com`) e coloque no seu `.env` do Expo: `EXPO_PUBLIC_API_URL=https://...`
-
+Para testar localmente, o processo de deploy foi realizado usando `render.yaml`. Basta colocar a URL pública acima no `.env` do Expo.
 ---
 
 ## 🔒 Regras de Segurança e Decisões Arquiteturais
