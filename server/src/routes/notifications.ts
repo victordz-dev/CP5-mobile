@@ -198,6 +198,12 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
 });
 
 router.post('/receipts', async (req: Request, res: Response) => {
+  const secret = req.headers['x-cron-secret'];
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    res.status(401).json({ error: 'Unauthorized CRON request' });
+    return;
+  }
+  
   try {
     const snap = await adminFirestore.collection('pushTickets').orderBy('createdAt', 'asc').limit(100).get();
     if (snap.empty) {

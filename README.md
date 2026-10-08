@@ -30,13 +30,24 @@ Este aplicativo é um chat multiplataforma (iOS/Android) desenvolvido com **Reac
    ```
 4. Inicie o Expo: `npx expo start`
 
+**Nota:** Este projeto utiliza o **Expo SDK 57**.
+
+---
+
+## 🚀 Backend e Endpoints (API)
+
+A API Node.js valida e realiza o meio de campo seguro para os disparos e regras da aplicação. Os seguintes endpoints estão implementados na API:
+- `POST /notifications/messages`: Recebe a solicitação de chat, adquire a trava de segurança idempotente (`pushSent`) e envia os tickets para o servidor do Expo Push de acordo com as políticas (`all_group_messages`, `mentioned_members`...).
+- `POST /sync-members` (e variantes `/users/profiles`): Autentica e resolve grupos e perfis sem expor os dados publicamente no Firebase Client, servindo como proxy para dados sensíveis.
+- `POST /notifications/receipts`: Endpoint de varredura assíncrona protegido por `x-cron-secret`. Lê os tickets Expo da base de dados, verifica erros póstumos (DeviceNotRegistered) e remove tokens mortos automaticamente.
+
 ---
 
 ## 🚀 Como Executar a API Localmente
 
 1. Navegue até a pasta `server/`: `cd server`
 2. Instale as dependências: `npm install`
-3. Crie um arquivo `server/.env` contendo suas variáveis do Firebase (`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`).
+3. Crie um arquivo `server/.env` contendo suas variáveis do Firebase (`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`) e seu `CRON_SECRET`.
 4. Compile o TypeScript: `npx tsc`
 5. Inicie o servidor: `npm start`
 6. A API responde no endpoint de health check: `GET /`
