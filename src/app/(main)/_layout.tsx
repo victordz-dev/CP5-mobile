@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Stack, useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { registerForPushNotificationsAsync } from '../../services/notificationService';
 import { Button } from 'react-native';
