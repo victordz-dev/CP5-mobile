@@ -1,6 +1,6 @@
 import { doc, setDoc, getDoc, collection, updateDoc, runTransaction, query, where, getDocs } from 'firebase/firestore';
 import { firestore } from './firebase';
-import { ChatGroup, NotificationPolicy } from '../types/group';
+import { ChatGroup } from '../types/group';
 import { syncChatMembers } from './chatService';
 
 export const createGroup = async (groupData: Omit<ChatGroup, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
@@ -39,7 +39,6 @@ export const joinGroup = async (groupId: string, userId: string) => {
   // Actually we can do it after the transaction completes.
   const newGroupDoc = await getDoc(groupRef);
   if (newGroupDoc.exists()) {
-    const finalData = newGroupDoc.data() as ChatGroup;
     await syncChatMembers(groupId, 'group');
   }
 };
@@ -60,7 +59,6 @@ export const leaveGroup = async (groupId: string, userId: string) => {
   });
   const newGroupDoc = await getDoc(groupRef);
   if (newGroupDoc.exists()) {
-    const finalData = newGroupDoc.data() as ChatGroup;
     await syncChatMembers(groupId, 'group');
   }
 };

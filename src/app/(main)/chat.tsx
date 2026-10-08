@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { listenToMessages, sendMessage } from '../../services/chatService';
 import { ChatMessage } from '../../types/chat';
 import { getUserProfile } from '../../services/userService';
-import { getDoc, doc, documentId } from 'firebase/firestore';
+import { getDoc, doc } from 'firebase/firestore';
 import { firestore, auth } from '../../services/firebase';
 import Constants from 'expo-constants';
 

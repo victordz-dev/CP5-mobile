@@ -49,7 +49,7 @@ export default function GroupDetailsScreen() {
         } else {
           setError('Grupo não encontrado');
         }
-      } catch (e) {
+      } catch {
         setError('Erro ao carregar.');
       }
       setLoading(false);
@@ -128,7 +128,7 @@ export default function GroupDetailsScreen() {
       await removeMember(group.id, userId);
       setMembers(members.filter(m => m.uid !== userId));
       setGroup({ ...group, memberIds: group.memberIds.filter(id => id !== userId) });
-    } catch (e) {
+    } catch {
       alert('Erro ao remover');
     }
   };
@@ -173,7 +173,7 @@ export default function GroupDetailsScreen() {
               try {
                 await leaveGroup(group.id, user!.uid);
                 router.replace('/(main)/conversations');
-              } catch(err) {
+              } catch {
                 alert('Erro ao sair do grupo');
               }
             }} />

@@ -33,7 +33,7 @@ const InitialLayout = () => {
       // Redirect to the main app.
       router.replace('/(main)/conversations');
     }
-  }, [user, loading, segments]);
+  }, [user, loading, segments, router]);
 
   if (loading) {
     return (

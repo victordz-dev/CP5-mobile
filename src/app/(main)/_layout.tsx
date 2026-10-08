@@ -7,7 +7,6 @@ import { logout } from '../../services/authService';
 
 export default function MainLayout() {
   const { user } = useAuth();
-  const router = useRouter();
 
   useEffect(() => {
     if (user) {

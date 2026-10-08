@@ -2,11 +2,9 @@ import { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Button } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
-import { getUserGroups } from '../../services/groupService';
-import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { firestore } from '../../services/firebase';
 import { ChatGroup } from '../../types/group';
-import { DirectConversation } from '../../types/chat';
 import { getUserProfile } from '../../services/userService';
 import { Loading } from '../../components/Loading';
 
