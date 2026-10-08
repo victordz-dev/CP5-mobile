@@ -22,10 +22,10 @@ export default function MainLayout() {
     if (lastNotificationResponse) {
       const data = lastNotificationResponse.notification.request.content.data;
       if (data && data.conversationId) {
-        router.push(`/(main)/chat?id=${data.conversationId}&type=${data.type}&name=${encodeURIComponent(data.name || 'Chat')}`);
+        router.push(`/(main)/chat?id=${data.conversationId}&type=${data.type}&name=${encodeURIComponent((data.name as string) || 'Chat')}`);
       }
     }
-  }, [lastNotificationResponse]);
+  }, [lastNotificationResponse, router]);
 
   const handleLogout = async () => {
     await logout();

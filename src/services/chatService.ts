@@ -1,4 +1,4 @@
-import { ref, push, set, onValue, off, query, orderByChild } from 'firebase/database';
+import { ref, push, set, onValue, query, orderByChild } from 'firebase/database';
 import { database, auth } from './firebase';
 import Constants from 'expo-constants';
 import { ChatMessage } from '../types/chat';
