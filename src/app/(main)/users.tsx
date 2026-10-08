@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { getAllUsers } from '../../services/userService';
@@ -14,6 +14,7 @@ export default function UsersScreen() {
   const router = useRouter();
   const [users, setUsers] = useState<ChatUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -44,12 +45,20 @@ export default function UsersScreen() {
     router.replace(`/(main)/chat?id=${conversationId}&type=direct&name=${encodeURIComponent(otherUser.name)}&photoUrl=${encodeURIComponent(otherUser.photoUrl)}&otherUserId=${otherUser.uid}`);
   };
 
+  const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
+
   if (loading) return <Loading />;
 
   return (
     <View style={styles.container}>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Buscar usuários..."
+        value={search}
+        onChangeText={setSearch}
+      />
       <FlatList
-        data={users}
+        data={filteredUsers}
         keyExtractor={item => item.uid}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.item} onPress={() => startChat(item)}>
@@ -64,6 +73,7 @@ export default function UsersScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
+  searchInput: { margin: 15, padding: 10, borderWidth: 1, borderColor: '#ccc', borderRadius: 8 },
   item: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderColor: '#eee', alignItems: 'center' },
   avatar: { width: 50, height: 50, borderRadius: 25, marginRight: 15 },
   name: { fontSize: 16 }

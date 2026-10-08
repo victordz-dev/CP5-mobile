@@ -35,6 +35,11 @@ export default function GroupFormScreen() {
   };
 
   const pickImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permissionResult.granted === false) {
+      setError("Permissão para acessar a galeria é necessária!");
+      return;
+    }
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -51,6 +56,10 @@ export default function GroupFormScreen() {
     const limitNum = parseInt(memberLimit, 10);
     if (!name || !memberLimit || !user) {
       setError('Preencha os campos obrigatórios.');
+      return;
+    }
+    if (isNaN(limitNum) || limitNum < 2) {
+      setError('O limite de membros deve ser um número inteiro (mínimo 2).');
       return;
     }
     if (selectedUserIds.size < 1) {
@@ -118,7 +127,9 @@ export default function GroupFormScreen() {
         <Button title="Off" onPress={() => setPolicy('disabled')} color={policy === 'disabled' ? 'blue' : 'gray'} />
       </View>
 
-      <Text style={styles.label}>Selecionar Membros:</Text>
+      <Text style={styles.label}>
+        Selecionar Membros ({selectedUserIds.size + 1}/{parseInt(memberLimit, 10) > 0 ? parseInt(memberLimit, 10) : '?'} vagas):
+      </Text>
       {users.map(u => (
         <TouchableOpacity key={u.uid} onPress={() => toggleUser(u.uid)} style={styles.userRow}>
           <Text style={{ fontWeight: selectedUserIds.has(u.uid) ? 'bold' : 'normal' }}>

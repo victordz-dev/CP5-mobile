@@ -125,7 +125,11 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       sound: 'default',
       title,
       body: bodyText,
-      data: { conversationId, conversationType: messageData.conversationType },
+      data: { 
+        conversationId, 
+        type: messageData.conversationType,
+        name: messageData.conversationType === 'group' ? (groupData?.name || 'Grupo') : 'Usuário' 
+      },
     }));
 
     const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {

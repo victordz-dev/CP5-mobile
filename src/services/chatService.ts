@@ -51,7 +51,7 @@ export const listenToMessages = (conversationId: string, callback: (messages: Ch
     callback(messages);
   });
 
-  return () => off(messagesRef, 'value', unsubscribe);
+  return unsubscribe;
 };
 
 export const generateDirectConversationId = (uid1: string, uid2: string) => {

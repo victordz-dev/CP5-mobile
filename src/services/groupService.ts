@@ -1,65 +1,57 @@
-import { doc, setDoc, getDoc, collection, updateDoc, runTransaction, query, where, getDocs } from 'firebase/firestore';
-import { firestore } from './firebase';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { firestore, auth } from './firebase';
 import { ChatGroup } from '../types/group';
-import { syncChatMembers } from './chatService';
+import Constants from 'expo-constants';
+
+const getApiUrl = () => Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL;
 
 export const createGroup = async (groupData: Omit<ChatGroup, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
-  const groupRef = doc(collection(firestore, 'groups'));
-  const newGroup: ChatGroup = {
-    ...groupData,
-    id: groupRef.id,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  await setDoc(groupRef, newGroup);
-  await syncChatMembers(groupRef.id, 'group');
-  return groupRef.id;
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(`${getApiUrl()}/groups`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(groupData)
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Falha ao criar grupo');
+  }
+  const data = await res.json();
+  return data.groupId;
 };
 
 export const joinGroup = async (groupId: string, userId: string) => {
-  const groupRef = doc(firestore, 'groups', groupId);
-  await runTransaction(firestore, async (transaction) => {
-    const groupDoc = await transaction.get(groupRef);
-    if (!groupDoc.exists()) {
-      throw new Error("Group does not exist.");
-    }
-    const data = groupDoc.data() as ChatGroup;
-    if (data.memberIds.includes(userId)) {
-      return; // Already a member
-    }
-    if (data.memberIds.length >= data.memberLimit) {
-      throw new Error("Group limit reached.");
-    }
-    transaction.update(groupRef, {
-      memberIds: [...data.memberIds, userId],
-      updatedAt: Date.now()
-    });
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(`${getApiUrl()}/groups/${groupId}/join`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ userId })
   });
-  // Since we don't have memberIds in scope outside transaction, fetch it or set it inside but setChatMembers is not a transaction.
-  // Actually we can do it after the transaction completes.
-  const newGroupDoc = await getDoc(groupRef);
-  if (newGroupDoc.exists()) {
-    await syncChatMembers(groupId, 'group');
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Falha ao adicionar membro');
   }
 };
 
 export const leaveGroup = async (groupId: string, userId: string) => {
-  const groupRef = doc(firestore, 'groups', groupId);
-  await runTransaction(firestore, async (transaction) => {
-    const groupDoc = await transaction.get(groupRef);
-    if (!groupDoc.exists()) {
-      throw new Error("Group does not exist.");
-    }
-    const data = groupDoc.data() as ChatGroup;
-    const newMembers = data.memberIds.filter(id => id !== userId);
-    transaction.update(groupRef, {
-      memberIds: newMembers,
-      updatedAt: Date.now()
-    });
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(`${getApiUrl()}/groups/${groupId}/leave`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ userId })
   });
-  const newGroupDoc = await getDoc(groupRef);
-  if (newGroupDoc.exists()) {
-    await syncChatMembers(groupId, 'group');
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Falha ao remover membro');
   }
 };
 
@@ -75,11 +67,19 @@ export const updateGroupConfig = async (
   groupId: string,
   updates: Partial<Pick<ChatGroup, 'name' | 'photoUrl' | 'memberLimit' | 'notificationPolicy' | 'memberIds'>>
 ) => {
-  const groupRef = doc(firestore, 'groups', groupId);
-  await updateDoc(groupRef, {
-    ...updates,
-    updatedAt: Date.now(),
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(`${getApiUrl()}/groups/${groupId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(updates)
   });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Falha ao atualizar grupo');
+  }
 };
 
 export const getUserGroups = async (userId: string): Promise<ChatGroup[]> => {

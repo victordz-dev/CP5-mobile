@@ -19,63 +19,62 @@ type ConversationItem = {
 export default function ConversationsScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const [items, setItems] = useState<ConversationItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [directItems, setDirectItems] = useState<ConversationItem[]>([]);
+  const [groupItems, setGroupItems] = useState<ConversationItem[]>([]);
+  const [loadingDirects, setLoadingDirects] = useState(true);
+  const [loadingGroups, setLoadingGroups] = useState(true);
 
   useEffect(() => {
     if (!user) return;
 
-    let unsubscribeDirects = () => {};
-    let unsubscribeGroups = () => {};
-
-    const loadData = () => {
-      // Direct conversations
-      const dRef = collection(firestore, 'directConversations');
-      const qDirects = query(dRef, where('participantIds', 'array-contains', user.uid));
-      unsubscribeDirects = onSnapshot(qDirects, async (snap) => {
-        const directs: ConversationItem[] = [];
-        for (const doc of snap.docs) {
-          const data = doc.data();
-          const otherId = data.participantIds.find((id: string) => id !== user.uid);
-          if (otherId) {
-            const profile = await getUserProfile(otherId);
-            directs.push({
-              id: doc.id,
-              name: profile?.name || 'Usuário',
-              photoUrl: profile?.photoUrl,
-              type: 'direct',
-              otherUserId: otherId
-            });
-          }
-        }
-        
-        // Groups
-        const gRef = collection(firestore, 'groups');
-        const qGroups = query(gRef, where('memberIds', 'array-contains', user.uid));
-        unsubscribeGroups = onSnapshot(qGroups, (gSnap) => {
-          const groups: ConversationItem[] = gSnap.docs.map(doc => {
-            const data = doc.data() as ChatGroup;
-            return {
-              id: doc.id,
-              name: data.name,
-              photoUrl: data.photoUrl,
-              type: 'group'
-            };
+    // Direct conversations
+    const dRef = collection(firestore, 'directConversations');
+    const qDirects = query(dRef, where('participantIds', 'array-contains', user.uid));
+    const unsubscribeDirects = onSnapshot(qDirects, async (snap) => {
+      const directs: ConversationItem[] = [];
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        const otherId = data.participantIds.find((id: string) => id !== user.uid);
+        if (otherId) {
+          const profile = await getUserProfile(otherId);
+          directs.push({
+            id: doc.id,
+            name: profile?.name || 'Usuário',
+            photoUrl: profile?.photoUrl,
+            type: 'direct',
+            otherUserId: otherId
           });
+        }
+      }
+      setDirectItems(directs);
+      setLoadingDirects(false);
+    });
 
-          setItems([...directs, ...groups]);
-          setLoading(false);
-        });
+    // Groups
+    const gRef = collection(firestore, 'groups');
+    const qGroups = query(gRef, where('memberIds', 'array-contains', user.uid));
+    const unsubscribeGroups = onSnapshot(qGroups, (gSnap) => {
+      const groups: ConversationItem[] = gSnap.docs.map(doc => {
+        const data = doc.data() as ChatGroup;
+        return {
+          id: doc.id,
+          name: data.name,
+          photoUrl: data.photoUrl,
+          type: 'group'
+        };
       });
-    };
-
-    loadData();
+      setGroupItems(groups);
+      setLoadingGroups(false);
+    });
 
     return () => {
       unsubscribeDirects();
       unsubscribeGroups();
     };
   }, [user]);
+
+  const items = [...directItems, ...groupItems];
+  const loading = loadingDirects || loadingGroups;
 
   if (loading) return <Loading />;
 
