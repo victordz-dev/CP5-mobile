@@ -53,11 +53,15 @@ export default function GroupFormScreen() {
   };
 
   const handleCreate = async () => {
-    const limitNum = parseInt(memberLimit, 10);
     if (!name || !memberLimit || !user) {
       setError('Preencha os campos obrigatórios.');
       return;
     }
+    if (!/^\d+$/.test(memberLimit)) {
+      setError('O limite de membros deve ser estritamente numérico.');
+      return;
+    }
+    const limitNum = Number(memberLimit);
     if (isNaN(limitNum) || limitNum < 2) {
       setError('O limite de membros deve ser um número inteiro (mínimo 2).');
       return;
