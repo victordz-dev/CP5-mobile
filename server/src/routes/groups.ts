@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { adminFirestore, adminDatabase } from '../services/firebaseAdmin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { authenticate, AuthenticatedRequest } from '../middleware/authenticate';
 
 const router = Router();
@@ -116,7 +117,7 @@ router.post('/:id/join', authenticate, async (req: AuthenticatedRequest, res: Re
     } catch (e) {
       // Manual rollback
       await adminFirestore.collection('groups').doc(id as string).update({
-        memberIds: adminFirestore.FieldValue.arrayRemove(userId)
+        memberIds: FieldValue.arrayRemove(userId)
       });
       throw new Error('Falha na sincronização do RTDB. Revertido.');
     }
@@ -174,7 +175,7 @@ router.post('/:id/leave', authenticate, async (req: AuthenticatedRequest, res: R
     } catch (e) {
       // Manual rollback
       await adminFirestore.collection('groups').doc(id as string).update({
-        memberIds: adminFirestore.FieldValue.arrayUnion(userId)
+        memberIds: FieldValue.arrayUnion(userId)
       });
       throw new Error('Falha na sincronização do RTDB. Revertido.');
     }
