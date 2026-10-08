@@ -1,0 +1,69 @@
+import { useEffect, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../../hooks/useAuth';
+import { getAllUsers } from '../../services/userService';
+import { ChatUser } from '../../types/user';
+import { Loading } from '../../components/Loading';
+import { generateDirectConversationId, syncChatMembers } from '../../services/chatService';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { firestore } from '../../services/firebase';
+
+export default function UsersScreen() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [users, setUsers] = useState<ChatUser[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadUsers = async () => {
+      const allUsers = await getAllUsers();
+      // Exclude current user
+      setUsers(allUsers.filter(u => u.uid !== user?.uid));
+      setLoading(false);
+    };
+    loadUsers();
+  }, [user]);
+
+  const startChat = async (otherUser: ChatUser) => {
+    if (!user) return;
+    const conversationId = generateDirectConversationId(user.uid, otherUser.uid);
+    
+    // Ensure direct conversation exists in Firestore
+    const convRef = doc(firestore, 'directConversations', conversationId);
+    const snap = await getDoc(convRef);
+    if (!snap.exists()) {
+      await setDoc(convRef, {
+        participantIds: [user.uid, otherUser.uid],
+        createdAt: Date.now()
+      });
+      await syncChatMembers(conversationId, 'direct');
+    }
+
+    router.replace(`/(main)/chat?id=${conversationId}&type=direct&name=${encodeURIComponent(otherUser.name)}&photoUrl=${encodeURIComponent(otherUser.photoUrl)}&otherUserId=${otherUser.uid}`);
+  };
+
+  if (loading) return <Loading />;
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={users}
+        keyExtractor={item => item.uid}
+        renderItem={({ item }) => (
+          <TouchableOpacity style={styles.item} onPress={() => startChat(item)}>
+            <Image source={{ uri: item.photoUrl || 'https://via.placeholder.com/50' }} style={styles.avatar} />
+            <Text style={styles.name}>{item.name}</Text>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#fff' },
+  item: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderColor: '#eee', alignItems: 'center' },
+  avatar: { width: 50, height: 50, borderRadius: 25, marginRight: 15 },
+  name: { fontSize: 16 }
+});

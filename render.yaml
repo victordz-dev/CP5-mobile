@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: cp5-api
+    env: node
+    rootDir: server
+    buildCommand: npm install && npx tsc
+    startCommand: npm start
+    envVars:
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false

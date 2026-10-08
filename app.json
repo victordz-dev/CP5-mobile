@@ -16,10 +16,27 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.victordz.cp5"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8b9f0a21-c121-4f3b-b2f5-b3e248cd9b82"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "O aplicativo acessa suas fotos para permitir que você escolha uma imagem de perfil e do grupo."
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "scheme": "cp5"
   }
 }
