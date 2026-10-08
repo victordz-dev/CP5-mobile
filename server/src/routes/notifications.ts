@@ -143,19 +143,6 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       return;
     }
     
-    // Process tickets and get receipts
-    interface ExpoTicket {
-      status: 'ok' | 'error';
-      id?: string;
-      details?: { error?: string };
-    }
-    const ticketIds: string[] = [];
-    result.data?.forEach((ticket: ExpoTicket) => {
-      if (ticket.status === 'ok' && ticket.id) {
-        ticketIds.push(ticket.id);
-      }
-    });
-
     const invalidTokens: string[] = [];
 
     // Check immediate ticket errors (like DeviceNotRegistered)
@@ -164,35 +151,6 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
         invalidTokens.push(tokens[index]);
       }
     });
-
-    // Check receipts if we have ticket IDs
-    if (ticketIds.length > 0) {
-      try {
-        const receiptRes = await fetch('https://exp.host/--/api/v2/push/get-receipts', {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'Accept-encoding': 'gzip, deflate',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ ids: ticketIds }),
-        });
-        
-        if (receiptRes.ok) {
-          const receiptData = await receiptRes.json();
-          for (const id in receiptData.data) {
-            const receipt = receiptData.data[id];
-            if (receipt.status === 'error' && (receipt.details?.error === 'DeviceNotRegistered' || receipt.details?.error === 'InvalidCredentials')) {
-              // Find the token corresponding to this ticket if possible, but Expo receipt doesn't directly map to token easily without saving it.
-              // We'll just rely on ticket errors for now, or if it's required we can do a reverse lookup.
-              // Actually, since we can't easily map receipt ID back to token without storing it, we will just rely on ticket errors which catch 99% of invalid tokens.
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching receipts', err);
-      }
-    }
 
     if (invalidTokens.length > 0) {
       for (const rid of recipientIds) {

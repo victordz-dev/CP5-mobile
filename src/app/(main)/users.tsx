@@ -33,9 +33,10 @@ export default function UsersScreen() {
     const convRef = doc(firestore, 'directConversations', conversationId);
     const snap = await getDoc(convRef);
     if (!snap.exists()) {
+      const now = new Date().getTime();
       await setDoc(convRef, {
         participantIds: [user.uid, otherUser.uid],
-        createdAt: Date.now()
+        createdAt: now
       });
       await syncChatMembers(conversationId, 'direct');
     }
