@@ -4,7 +4,8 @@ import { authenticate, AuthenticatedRequest } from '../middleware/authenticate';
 
 const router = Router();
 
-// Synchronize member list from Firestore to RTDB
+const validPolicies = ['all_group_messages', 'mentioned_members', 'direct_messages_only', 'disabled'];
+
 const syncGroupToRTDB = async (groupId: string, memberIds: string[]) => {
   const membersRecord: Record<string, boolean> = {};
   memberIds.forEach((uid: string) => {
@@ -22,10 +23,27 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
       return;
     }
 
+    if (typeof memberLimit !== 'number' || memberLimit < 2) {
+      res.status(400).json({ error: 'memberLimit deve ser um número maior ou igual a 2' });
+      return;
+    }
+    if (!validPolicies.includes(notificationPolicy)) {
+      res.status(400).json({ error: 'notificationPolicy inválida' });
+      return;
+    }
+    if (!Array.isArray(memberIds) || memberIds.length < 2 || memberIds.length > memberLimit) {
+      res.status(400).json({ error: 'memberIds inválido (mínimo 2, máximo ' + memberLimit + ')' });
+      return;
+    }
+    if (!memberIds.includes(user.uid)) {
+      res.status(400).json({ error: 'O dono deve estar incluso em memberIds' });
+      return;
+    }
+
     const groupRef = adminFirestore.collection('groups').doc();
     const newGroup = {
       name,
-      photoUrl,
+      photoUrl: photoUrl || '',
       ownerId: user.uid,
       memberLimit,
       notificationPolicy,
@@ -39,11 +57,16 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
     batch.set(groupRef, newGroup);
     await batch.commit();
 
-    await syncGroupToRTDB(groupRef.id, memberIds);
+    try {
+      await syncGroupToRTDB(groupRef.id, memberIds);
+    } catch (e) {
+      await groupRef.delete();
+      throw new Error('Falha ao sincronizar com RTDB. Revertendo criação.');
+    }
 
     res.status(200).json({ success: true, groupId: groupRef.id });
-  } catch (err) {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (err: unknown) {
+    res.status(500).json({ error: (err as Error).message || 'Internal server error' });
   }
 });
 
@@ -66,6 +89,10 @@ router.post('/:id/join', authenticate, async (req: AuthenticatedRequest, res: Re
       
       const data = doc.data();
       if (!data) throw new Error('No data');
+
+      if (data.ownerId !== user.uid) {
+        throw new Error('Only the owner can add members');
+      }
       
       const members = data.memberIds || [];
       if (members.includes(userId)) {
@@ -84,10 +111,17 @@ router.post('/:id/join', authenticate, async (req: AuthenticatedRequest, res: Re
       });
     });
 
-    await syncGroupToRTDB(id as string, finalMembers);
+    try {
+      await syncGroupToRTDB(id as string, finalMembers);
+    } catch (e) {
+      // Manual rollback is complex in a REST endpoint after transaction, 
+      // but RTDB sync failure is critical. For now we just return error and let clients retry.
+      throw new Error('Falha na sincronização do RTDB.');
+    }
+
     res.status(200).json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Error joining group' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err as Error).message || 'Error joining group' });
   }
 });
 
@@ -116,6 +150,11 @@ router.post('/:id/leave', authenticate, async (req: AuthenticatedRequest, res: R
       }
 
       const members = data.memberIds || [];
+      
+      if (members.length <= 2 && members.includes(userId)) {
+        throw new Error('Um grupo não pode ter menos de 2 membros. Delete o grupo se desejar encerra-lo.');
+      }
+
       finalMembers = members.filter((uid: string) => uid !== userId);
 
       transaction.update(groupRef, {
@@ -124,10 +163,15 @@ router.post('/:id/leave', authenticate, async (req: AuthenticatedRequest, res: R
       });
     });
 
-    await syncGroupToRTDB(id as string, finalMembers);
+    try {
+      await syncGroupToRTDB(id as string, finalMembers);
+    } catch (e) {
+      throw new Error('Falha na sincronização do RTDB.');
+    }
+
     res.status(200).json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message || 'Error leaving group' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err as Error).message || 'Error leaving group' });
   }
 });
 
@@ -141,21 +185,40 @@ router.put('/:id', authenticate, async (req: AuthenticatedRequest, res: Response
       return;
     }
 
-    const groupRef = adminFirestore.collection('groups').doc(id as string);
-    const doc = await groupRef.get();
-    if (!doc.exists || doc.data()?.ownerId !== user.uid) {
-      res.status(403).json({ error: 'Only owner can update' });
-      return;
-    }
+    // Filter restricted fields
+    delete updates.memberIds;
+    delete updates.ownerId;
+    delete updates.id;
+    delete updates.createdAt;
 
-    await groupRef.update({
-      ...updates,
-      updatedAt: Date.now()
+    const groupRef = adminFirestore.collection('groups').doc(id as string);
+    
+    await adminFirestore.runTransaction(async (transaction) => {
+      const doc = await transaction.get(groupRef);
+      if (!doc.exists || doc.data()?.ownerId !== user.uid) {
+        throw new Error('Apenas o dono pode atualizar');
+      }
+      const data = doc.data()!;
+
+      if (updates.memberLimit !== undefined) {
+        if (typeof updates.memberLimit !== 'number' || updates.memberLimit < data.memberIds.length) {
+          throw new Error('memberLimit inválido ou menor que a quantidade atual de membros');
+        }
+      }
+      
+      if (updates.notificationPolicy !== undefined && !validPolicies.includes(updates.notificationPolicy)) {
+        throw new Error('notificationPolicy inválida');
+      }
+
+      transaction.update(groupRef, {
+        ...updates,
+        updatedAt: Date.now()
+      });
     });
 
     res.status(200).json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Internal server error' });
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err as Error).message || 'Internal server error' });
   }
 });
 

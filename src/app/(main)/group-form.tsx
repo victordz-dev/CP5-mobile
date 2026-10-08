@@ -132,7 +132,7 @@ export default function GroupFormScreen() {
       </View>
 
       <Text style={styles.label}>
-        Selecionar Membros ({selectedUserIds.size + 1}/{parseInt(memberLimit, 10) > 0 ? parseInt(memberLimit, 10) : '?'} vagas):
+        Selecionar Membros (Vagas restantes: {Number(memberLimit) > 0 ? (Number(memberLimit) - (selectedUserIds.size + 1)) : '?'}):
       </Text>
       {users.map(u => (
         <TouchableOpacity key={u.uid} onPress={() => toggleUser(u.uid)} style={styles.userRow}>

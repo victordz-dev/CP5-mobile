@@ -51,23 +51,26 @@ A API no Render foi configurada em conjunto com o `render.yaml` contendo a espec
 
 ---
 
-## 🔒 Regras de Segurança, Infraestrutura e Transações (Firebase)
+## 🌐 API Publicada (Render)
 
-**Firestore (Perfis e Grupos):**
-- As regras de `firestore.rules` validam tipos intrínsecos e impõem políticas estruturais. O limite de grupo (`memberLimit`) é checado rigidamente como `int >= 2` durante a criação.
-- Vagas Concorrentes: A entrada/saída de grupos é operada transacionalmente pelo Backend (Express + `adminFirestore.runTransaction`). O backend verifica o limite e o número de vagas restantes e aplica simultaneamente no Firestore e RTDB (`chat_members`), fechando qualquer janela de vulnerabilidade de concorrência ou escuta indevida de dados.
-- Privacidade de Perfis: Telefones e Datas de nascimento são processados na raiz `users/{uid}`, porém as regras Firestore impedem qualquer leitura direta externa. Os dados de terceiros só trafegam quando o Backend detecta que você compartilha conversas com eles.
+A API oficial já se encontra publicada no Render (produção) e com HTTPS.
+- **URL Base / Endpoint Público:** `https://cp5-mobile.onrender.com`
+- **Health check:** Acesse `https://cp5-mobile.onrender.com/` para receber o JSON de status: `{"status":"ok","service":"CP5 API",...}` e verificar se o servidor está no ar.
 
-**Configuração de Fotos (Storage):**
-- As fotos de perfil e grupo são subidas no Firebase Storage com o prefixo `/users/` ou `/groups/`.
-- O arquivo `storage.rules` restringe uploads exclusivamente a usuários autenticados cujos arquivos passem na restrição de `content-type` (`image/*`) e limite de tamanho (`< 5MB`). O App solicita explicitamente a Permissão de Galeria via `expo-image-picker`.
+Basta colocar a URL pública acima no `.env` do Expo (`EXPO_PUBLIC_API_URL`) para o app usá-la, dispensando a necessidade de iniciar o servidor localmente para testar.
 
-**Políticas de Notificação e Receipt Cleanup:**
-- `all_group_messages`: Envia push a todos exceto ao remetente.
-- `mentioned_members`: Filtra e notifica exclusivamente quem foi mencionado por `@` na mensagem (verificado via Firebase).
-- `direct_messages_only`: Silencia pushes ativamente para os grupos que a adotam.
-- `disabled`: Desativa o processamento de Push, mas retém logs de tentativa.
-- Processamento de Receipts: O Endpoint `POST /notifications/receipts` protegido por `x-cron-secret` roda periodicamente para consultar `getReceipts` do Expo Push Service e invalidar devices desregistrados assíncronamente.
+---
+
+## 🔒 Regras de Segurança e Arquitetura
+
+**Firestore:**
+Apenas usuários autenticados têm acesso. A coleção principal de usuários protege informações sensíveis por default. As criações, edições e exclusões de Grupos são estritamente travadas (`ownerId`, limite e tamanho mínimo de grupo ≥ 2). A edição por parte dos membros ocorre unicamente no momento de sair do grupo, de forma segura, com endpoints dedicados validando as permissões de `ownerId`.
+
+**Realtime Database (Sincronização Sequencial):**
+Apenas membros reais do chat podem ler ou escrever as mensagens, graças à verificação em espelho no RTDB. Apenas o backend tem acesso Admin absoluto e serve de ponte segura para inserção via rotas HTTPS. Operações de Grupo (criação, entrada e saída) primeiro comutam os arrays no `Firestore` via `runTransaction` e logo em sequência replicam o estado em `chat_members` do RTDB. Em caso de falha transitória de comunicação com o RTDB, a operação reverte manualmente garantindo consistência sem precisar de 2-phase commit nativo.
+
+**Notificações Push e Idempotência:**
+O backend verifica a flag `pushSent`. Para garantir a concorrência, é usada uma transação atômica do RTDB na flag: a operação a tranca no status `pending`, dispara a solicitação ao `exp.host` e caso falhe na validação/integração com a Expo, dá um **rollback imediato e limpo** para permitir uma tentativa subsequente.
 
 ---
 

@@ -19,6 +19,11 @@ export default function RegisterScreen() {
   const [loading, setLoading] = useState(false);
 
   const pickImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permissionResult.granted === false) {
+      setError("Permissão para acessar a galeria é necessária!");
+      return;
+    }
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
