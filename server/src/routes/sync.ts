@@ -59,10 +59,10 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
 router.get('/users', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const snap = await adminFirestore.collection('users').get();
-    // Return only public info to populate the new chat list securely
+    // Return only minimum public info to populate the new chat list securely
     const users = snap.docs.map(doc => {
       const data = doc.data();
-      return { uid: doc.id, name: data.name, email: data.email, photoUrl: data.photoUrl };
+      return { uid: doc.id, name: data.name, photoUrl: data.photoUrl };
     });
     res.status(200).json(users);
   } catch (err) {
@@ -70,15 +70,51 @@ router.get('/users', authenticate, async (req: AuthenticatedRequest, res: Respon
   }
 });
 
+interface UserProfile {
+  uid: string;
+  name?: string;
+  email?: string;
+  phoneNumber?: string;
+  birthDate?: string;
+  photoUrl?: string;
+}
+
 router.post('/users/profiles', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   const { userIds } = req.body;
-  if (!userIds || !Array.isArray(userIds)) return;
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  if (!userIds || !Array.isArray(userIds)) {
+    res.status(400).json({ error: 'Missing or invalid userIds' });
+    return;
+  }
+  
   try {
-    const users: any[] = [];
+    const users: UserProfile[] = [];
+    
+    // Check direct conversations
+    const directsSnap = await adminFirestore.collection('directConversations').where('participantIds', 'array-contains', user.uid).get();
+    const sharedUsers = new Set<string>();
+    directsSnap.forEach(doc => {
+      const p = doc.data().participantIds || [];
+      p.forEach((id: string) => sharedUsers.add(id));
+    });
+
+    // Check groups
+    const groupsSnap = await adminFirestore.collection('groups').where('memberIds', 'array-contains', user.uid).get();
+    groupsSnap.forEach(doc => {
+      const m = doc.data().memberIds || [];
+      m.forEach((id: string) => sharedUsers.add(id));
+    });
+
     for (const uid of userIds) {
-      const snap = await adminFirestore.collection('users').doc(uid).get();
-      if (snap.exists) {
-        users.push({ uid: snap.id, ...snap.data() });
+      if (uid === user.uid || sharedUsers.has(uid)) {
+        const snap = await adminFirestore.collection('users').doc(uid).get();
+        if (snap.exists) {
+          users.push({ uid: snap.id, ...snap.data() } as UserProfile);
+        }
       }
     }
     res.status(200).json(users);

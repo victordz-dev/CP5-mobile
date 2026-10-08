@@ -105,23 +105,23 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       return;
     }
 
-    const tokens: string[] = [];
+    const tokensMap: { token: string; userId: string }[] = [];
     for (const rid of recipientIds) {
       const devicesSnap = await adminFirestore.collection(`users/${rid}/devices`).where('enabled', '==', true).get();
       devicesSnap.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
         const t = doc.data().token as string;
-        if (t) tokens.push(t);
+        if (t) tokensMap.push({ token: t, userId: rid });
       });
     }
 
-    if (tokens.length === 0) {
+    if (tokensMap.length === 0) {
       await messageRef.update({ pushSent: true });
       res.status(200).json({ success: true, reason: 'No valid device tokens found' });
       return;
     }
 
-    const messages = tokens.map(token => ({
-      to: token,
+    const messages = tokensMap.map(t => ({
+      to: t.token,
       sound: 'default',
       title,
       body: bodyText,
@@ -145,7 +145,8 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       return;
     }
     
-    const invalidTokens: string[] = [];
+    const invalidTokensMap: { token: string; userId: string }[] = [];
+    const validTickets: { id: string; token: string; userId: string }[] = [];
 
     interface ExpoTicket {
       status: 'ok' | 'error';
@@ -155,18 +156,31 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
 
     // Check immediate ticket errors (like DeviceNotRegistered)
     result.data?.forEach((ticket: ExpoTicket, index: number) => {
+      const tMap = tokensMap[index];
       if (ticket.status === 'error' && (ticket.details?.error === 'DeviceNotRegistered' || ticket.details?.error === 'InvalidCredentials')) {
-        invalidTokens.push(tokens[index]);
+        invalidTokensMap.push(tMap);
+      } else if (ticket.status === 'ok' && ticket.id) {
+        validTickets.push({ id: ticket.id, token: tMap.token, userId: tMap.userId });
       }
     });
 
-    if (invalidTokens.length > 0) {
-      for (const rid of recipientIds) {
-        const devicesSnap = await adminFirestore.collection(`users/${rid}/devices`).where('token', 'in', invalidTokens).get();
+    if (invalidTokensMap.length > 0) {
+      for (const tMap of invalidTokensMap) {
+        const devicesSnap = await adminFirestore.collection(`users/${tMap.userId}/devices`).where('token', '==', tMap.token).get();
         devicesSnap.forEach(doc => {
           doc.ref.delete();
         });
       }
+    }
+
+    // Save valid tickets for receipt processing
+    if (validTickets.length > 0) {
+      const batch = adminFirestore.batch();
+      for (const t of validTickets) {
+        const ref = adminFirestore.collection('pushTickets').doc(t.id);
+        batch.set(ref, { token: t.token, userId: t.userId, createdAt: Date.now() });
+      }
+      await batch.commit();
     }
 
     await messageRef.update({ pushSent: true });
@@ -179,6 +193,65 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
          await adminDatabase.ref(`messages/${req.body.conversationId}/${req.body.messageId}`).update({ pushSent: false });
       } catch (e) {}
     }
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/receipts', async (req: Request, res: Response) => {
+  try {
+    const snap = await adminFirestore.collection('pushTickets').orderBy('createdAt', 'asc').limit(100).get();
+    if (snap.empty) {
+      res.status(200).json({ success: true, reason: 'No tickets to process' });
+      return;
+    }
+    
+    const tickets = snap.docs.map(d => ({ id: d.id, ...(d.data() as { token: string, userId: string }) }));
+    const ids = tickets.map(t => t.id);
+
+    const expoRes = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+
+    if (!expoRes.ok) {
+      res.status(502).json({ error: 'Expo API error' });
+      return;
+    }
+
+    const { data, errors } = await expoRes.json();
+    if (errors) {
+      res.status(502).json({ error: 'Expo returned errors', details: errors });
+      return;
+    }
+
+    const batch = adminFirestore.batch();
+    const invalidTokens: { token: string; userId: string }[] = [];
+
+    interface ExpoReceipt {
+      status: 'ok' | 'error';
+      message?: string;
+      details?: { error?: string };
+    }
+    for (const [id, receiptData] of Object.entries(data)) {
+      const receipt = receiptData as ExpoReceipt;
+      if (receipt.status === 'error' && (receipt.details?.error === 'DeviceNotRegistered' || receipt.details?.error === 'InvalidCredentials')) {
+        const t = tickets.find(x => x.id === id);
+        if (t) invalidTokens.push({ token: t.token, userId: t.userId });
+      }
+      batch.delete(adminFirestore.collection('pushTickets').doc(id));
+    }
+
+    // Delete invalid tokens
+    for (const tMap of invalidTokens) {
+      const devicesSnap = await adminFirestore.collection(`users/${tMap.userId}/devices`).where('token', '==', tMap.token).get();
+      devicesSnap.forEach(doc => batch.delete(doc.ref));
+    }
+
+    await batch.commit();
+    res.status(200).json({ success: true, processedCount: ids.length, deletedCount: invalidTokens.length });
+  } catch (error) {
+    console.error('Receipt processing error', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
