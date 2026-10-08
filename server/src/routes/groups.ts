@@ -23,16 +23,16 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
       return;
     }
 
-    if (typeof memberLimit !== 'number' || memberLimit < 2) {
-      res.status(400).json({ error: 'memberLimit deve ser um número maior ou igual a 2' });
+    if (typeof memberLimit !== 'number' || !Number.isInteger(memberLimit) || memberLimit < 2) {
+      res.status(400).json({ error: 'memberLimit deve ser um número inteiro maior ou igual a 2' });
       return;
     }
     if (!validPolicies.includes(notificationPolicy)) {
       res.status(400).json({ error: 'notificationPolicy inválida' });
       return;
     }
-    if (!Array.isArray(memberIds) || memberIds.length < 2 || memberIds.length > memberLimit) {
-      res.status(400).json({ error: 'memberIds inválido (mínimo 2, máximo ' + memberLimit + ')' });
+    if (!Array.isArray(memberIds) || new Set(memberIds).size !== memberIds.length || memberIds.length < 2 || memberIds.length > memberLimit) {
+      res.status(400).json({ error: 'memberIds inválido (mínimo 2, máximo ' + memberLimit + ', IDs únicos)' });
       return;
     }
     if (!memberIds.includes(user.uid)) {
@@ -114,9 +114,11 @@ router.post('/:id/join', authenticate, async (req: AuthenticatedRequest, res: Re
     try {
       await syncGroupToRTDB(id as string, finalMembers);
     } catch (e) {
-      // Manual rollback is complex in a REST endpoint after transaction, 
-      // but RTDB sync failure is critical. For now we just return error and let clients retry.
-      throw new Error('Falha na sincronização do RTDB.');
+      // Manual rollback
+      await adminFirestore.collection('groups').doc(id as string).update({
+        memberIds: adminFirestore.FieldValue.arrayRemove(userId)
+      });
+      throw new Error('Falha na sincronização do RTDB. Revertido.');
     }
 
     res.status(200).json({ success: true });
@@ -151,6 +153,10 @@ router.post('/:id/leave', authenticate, async (req: AuthenticatedRequest, res: R
 
       const members = data.memberIds || [];
       
+      if (data.ownerId === userId) {
+        throw new Error('O dono não pode sair sem transferir a propriedade do grupo.');
+      }
+      
       if (members.length <= 2 && members.includes(userId)) {
         throw new Error('Um grupo não pode ter menos de 2 membros. Delete o grupo se desejar encerra-lo.');
       }
@@ -166,7 +172,11 @@ router.post('/:id/leave', authenticate, async (req: AuthenticatedRequest, res: R
     try {
       await syncGroupToRTDB(id as string, finalMembers);
     } catch (e) {
-      throw new Error('Falha na sincronização do RTDB.');
+      // Manual rollback
+      await adminFirestore.collection('groups').doc(id as string).update({
+        memberIds: adminFirestore.FieldValue.arrayUnion(userId)
+      });
+      throw new Error('Falha na sincronização do RTDB. Revertido.');
     }
 
     res.status(200).json({ success: true });
@@ -201,8 +211,8 @@ router.put('/:id', authenticate, async (req: AuthenticatedRequest, res: Response
       const data = doc.data()!;
 
       if (updates.memberLimit !== undefined) {
-        if (typeof updates.memberLimit !== 'number' || updates.memberLimit < data.memberIds.length) {
-          throw new Error('memberLimit inválido ou menor que a quantidade atual de membros');
+        if (typeof updates.memberLimit !== 'number' || !Number.isInteger(updates.memberLimit) || updates.memberLimit < data.memberIds.length) {
+          throw new Error('memberLimit inválido (deve ser inteiro) ou menor que a quantidade atual de membros');
         }
       }
       

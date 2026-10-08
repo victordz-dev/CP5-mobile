@@ -64,6 +64,11 @@ export default function GroupDetailsScreen() {
   const vagas = group.memberLimit - group.memberIds.length;
 
   const pickImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permissionResult.granted === false) {
+      setError("Permissão para acessar a galeria é necessária!");
+      return;
+    }
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
@@ -83,7 +88,10 @@ export default function GroupDetailsScreen() {
         photoUrl = await uploadImageAsync(photoUri, `groups/${Date.now()}`);
       }
       
-      const newLimit = parseInt(editLimit, 10);
+      if (!/^\d+$/.test(editLimit)) {
+        throw new Error('O limite de membros deve ser estritamente numérico.');
+      }
+      const newLimit = Number(editLimit);
       if (newLimit < group.memberIds.length) {
         throw new Error('Limite menor que a quantidade atual de membros.');
       }

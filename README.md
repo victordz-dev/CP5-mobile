@@ -61,16 +61,36 @@ Basta colocar a URL pública acima no `.env` do Expo (`EXPO_PUBLIC_API_URL`) par
 
 ---
 
+### 📡 Endpoints da API
+
+A API centraliza as operações sensíveis, evitando que o cliente (App) atue diretamente em regras complexas do banco de dados:
+
+- **`POST /groups`**: Criação do grupo. Valida limites numéricos, políticas estritas de push e garante que o usuário que criou o grupo esteja entre os membros iniciais e seja o `ownerId`.
+- **`POST /groups/:id/join`**: Adição de novos membros. Autorizada apenas para o proprietário, verificando o `memberLimit` dinamicamente com trava de transação (`runTransaction`) para evitar ultrapassar as vagas caso 2 donos loguem simultaneamente.
+- **`POST /groups/:id/leave`**: Remoção voluntária ou expulsão. O `ownerId` não pode sair do grupo sem transferir a propriedade, e o grupo impede a descida do número de membros para `< 2`.
+- **`PUT /groups/:id`**: Edição. Restrito a nome, limite (nunca menor que os membros atuais) e foto.
+
+---
+
 ## 🔒 Regras de Segurança e Arquitetura
 
 **Firestore:**
-Apenas usuários autenticados têm acesso. A coleção principal de usuários protege informações sensíveis por default. As criações, edições e exclusões de Grupos são estritamente travadas (`ownerId`, limite e tamanho mínimo de grupo ≥ 2). A edição por parte dos membros ocorre unicamente no momento de sair do grupo, de forma segura, com endpoints dedicados validando as permissões de `ownerId`.
+Apenas usuários autenticados têm acesso. A coleção principal de usuários protege informações sensíveis por default. As criações, edições e exclusões de Grupos são estritamente travadas (`ownerId`, limite e tamanho mínimo de grupo ≥ 2).
 
-**Realtime Database (Sincronização Sequencial):**
-Apenas membros reais do chat podem ler ou escrever as mensagens, graças à verificação em espelho no RTDB. Apenas o backend tem acesso Admin absoluto e serve de ponte segura para inserção via rotas HTTPS. Operações de Grupo (criação, entrada e saída) primeiro comutam os arrays no `Firestore` via `runTransaction` e logo em sequência replicam o estado em `chat_members` do RTDB. Em caso de falha transitória de comunicação com o RTDB, a operação reverte manualmente garantindo consistência sem precisar de 2-phase commit nativo.
+**Realtime Database (Sincronização Sequencial e Rollback Automático):**
+Apenas membros reais do chat podem ler ou escrever mensagens. Para mitigar o problema do "2-phase commit" entre 2 bancos não-relacionais diferentes do Google (Firestore e RTDB), o servidor atua como ponte. A rota executa as alterações de participantes primeiramente no **Firestore**, garantindo a concorrência (`runTransaction`); na mesma esteira, chama o **Realtime Database** para espelhar a lista de `chat_members`.
+**Proteção contra falha:** Se o RTDB der timeout ou erro de rede, o catch intercepta o erro no Node.js e dispara um **Rollback Manual atômico**, removendo ou devolvendo o usuário afetado de volta ao Firestore e repassando o erro limpo ao cliente (App). Isso elimina a chance de vazamento de acesso.
 
-**Notificações Push e Idempotência:**
-O backend verifica a flag `pushSent`. Para garantir a concorrência, é usada uma transação atômica do RTDB na flag: a operação a tranca no status `pending`, dispara a solicitação ao `exp.host` e caso falhe na validação/integração com a Expo, dá um **rollback imediato e limpo** para permitir uma tentativa subsequente.
+**Armazenamento de Fotos (Firebase Storage):**
+- As regras (`storage.rules`) exigem tipagem restrita: apenas arquivos cujo `content-type` corresponda a imagens (`image/*`) e cujo tamanho seja inferior a `5MB` são permitidos.
+- As imagens são armazenadas em `/profiles/{userId}` ou `/groups/`.
+- O lado do cliente implementa o fluxo formal de requisição e tratativa de permissão negativa usando `expo-image-picker` e `expo-image-manipulator` (limitando qualidade a 0.5 para economizar rede).
+
+**Notificações Push (Firebase Cloud Messaging - FCM) e Expo:**
+- O projeto usa `expo-notifications` para se comunicar diretamente com a APNs (Apple) e FCM (Google Android).
+- A configuração dos pacotes nativos para Android reside no arquivo `app.json` (credencial e chave via `google-services.json`). Para iOS reside em `GoogleService-Info.plist` atrelado ao `bundleIdentifier`.
+- A geração das notificações é roteada pelo servidor que processa o token único FCM/Expo salvo por dispositivo em `users/{userId}/devices/{deviceId}`.
+- O backend verifica a flag `pushSent`. Para garantir a concorrência, é usada uma transação atômica do RTDB na flag: a operação a tranca no status `pending`, dispara a solicitação ao `exp.host` e caso falhe na validação/integração com a Expo, dá um **rollback imediato e limpo** para permitir uma tentativa subsequente.
 
 ---
 
