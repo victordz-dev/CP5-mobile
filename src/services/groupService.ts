@@ -65,9 +65,13 @@ export const leaveGroup = async (groupId: string, userId: string) => {
   }
 };
 
+export const removeMember = async (groupId: string, userId: string) => {
+  return leaveGroup(groupId, userId);
+};
+
 export const updateGroupConfig = async (
   groupId: string,
-  updates: Partial<Pick<ChatGroup, 'name' | 'photoUrl' | 'memberLimit' | 'notificationPolicy'>>
+  updates: Partial<Pick<ChatGroup, 'name' | 'photoUrl' | 'memberLimit' | 'notificationPolicy' | 'memberIds'>>
 ) => {
   const groupRef = doc(firestore, 'groups', groupId);
   await updateDoc(groupRef, {

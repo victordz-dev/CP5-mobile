@@ -18,7 +18,6 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
   }
 
   try {
-    // 1. Check if message exists and user is sender
     const messageRef = adminDatabase.ref(`messages/${conversationId}/${messageId}`);
     const messageSnap = await messageRef.once('value');
     if (!messageSnap.exists()) {
@@ -32,36 +31,20 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       return;
     }
 
-    if (messageData.senderId !== user.uid) {
-      res.status(403).json({ error: 'You are not the sender of this message' });
-      return;
-    }
-
-    // Atomic transaction for idempotency
-    const txResult = await messageRef.transaction((currentData) => {
-      if (currentData === null) return null;
-      if (currentData.pushSent) {
-        return; // Abort transaction
-      }
-      currentData.pushSent = true;
-      return currentData;
-    });
-
-    if (!txResult.committed) {
+    if (messageData.pushSent) {
       res.status(200).json({ success: true, reason: 'Push already sent or message deleted' });
       return;
     }
 
-    // 2. Fetch recipients and group/conversation data
-    let recipientIds: string[] = [];
+    let allParticipants: string[] = [];
     let title = 'Nova mensagem';
     let bodyText = messageData.text;
+    let groupData: any = null;
 
     if (messageData.conversationType === 'direct') {
       const convSnap = await adminFirestore.doc(`directConversations/${conversationId}`).get();
       if (convSnap.exists) {
-        const data = convSnap.data();
-        recipientIds = data?.participantIds?.filter((id: string) => id !== user.uid) || [];
+        allParticipants = convSnap.data()?.participantIds || [];
       }
     } else if (messageData.conversationType === 'group') {
       const groupSnap = await adminFirestore.doc(`groups/${conversationId}`).get();
@@ -69,29 +52,47 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
         res.status(404).json({ error: 'Group not found' });
         return;
       }
-      const groupData = groupSnap.data() as { name: string; notificationPolicy: string; memberIds: string[] };
+      groupData = groupSnap.data();
+      allParticipants = groupData?.memberIds || [];
+      title = `Nova mensagem em ${groupData?.name}`;
+    }
+
+    // Validate sender belongs to conversation
+    if (!allParticipants.includes(user.uid)) {
+      res.status(403).json({ error: 'Sender does not belong to the conversation' });
+      return;
+    }
+
+    // Filter recipients and mentions
+    let recipientIds: string[] = [];
+
+    if (messageData.conversationType === 'direct') {
+      recipientIds = allParticipants.filter((id: string) => id !== user.uid);
+    } else if (messageData.conversationType === 'group') {
       const policy = groupData.notificationPolicy || 'all_group_messages';
-      title = `Nova mensagem em ${groupData.name}`;
 
       if (policy === 'disabled' || policy === 'direct_messages_only') {
+        // Mark as sent even if disabled to avoid retrying
+        await messageRef.update({ pushSent: true });
         res.status(200).json({ success: true, reason: 'Notifications disabled by policy' });
         return;
       }
 
       if (policy === 'all_group_messages') {
-        recipientIds = groupData.memberIds.filter((id: string) => id !== user.uid);
+        recipientIds = allParticipants.filter((id: string) => id !== user.uid);
       } else if (policy === 'mentioned_members') {
         const mentionedIds = messageData.mentionedUserIds || [];
-        recipientIds = mentionedIds.filter((id: string) => id !== user.uid);
+        // Validate mentioned users belong to conversation
+        recipientIds = mentionedIds.filter((id: string) => id !== user.uid && allParticipants.includes(id));
       }
     }
 
     if (recipientIds.length === 0) {
-      res.status(200).json({ success: true, reason: 'No recipients to notify' });
+      await messageRef.update({ pushSent: true });
+      res.status(200).json({ success: true, reason: 'No valid recipients to notify' });
       return;
     }
 
-    // 3. Fetch device tokens for recipients
     const tokens: string[] = [];
     for (const rid of recipientIds) {
       const devicesSnap = await adminFirestore.collection(`users/${rid}/devices`).where('enabled', '==', true).get();
@@ -102,13 +103,11 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
     }
 
     if (tokens.length === 0) {
+      await messageRef.update({ pushSent: true });
       res.status(200).json({ success: true, reason: 'No valid device tokens found' });
       return;
     }
 
-    // 4. Send Push using FCM or Expo (We use FCM Admin SDK, wait, Expo SDK pushes require expo's server unless we format it specially. The instruction says FCM or Expo Push. We can use Expo's chunk pushing, but since we have `expo-notifications`, we can send a standard FCM message if we use FCM tokens. If we use Expo tokens, we need to call Expo Push API. Let's use Expo Push API directly as it's easier and standard for Expo apps.)
-    // But the requirement says "enviar notificações pelo FCM ou pelo Expo Push Service." Let's use Expo Push service.
-    
     const messages = tokens.map(token => ({
       to: token,
       sound: 'default',
@@ -129,23 +128,26 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
 
     const result = await expoRes.json();
     
-    
-    // Remove invalid tokens (Process receipts)
+    // Check receipts (Ticket errors)
     const invalidTokens: string[] = [];
-    result.data.forEach((ticket: any, index: number) => {
+    result.data?.forEach((ticket: any, index: number) => {
       if (ticket.status === 'error' && (ticket.details?.error === 'DeviceNotRegistered' || ticket.details?.error === 'InvalidCredentials')) {
         invalidTokens.push(tokens[index]);
       }
     });
 
     if (invalidTokens.length > 0) {
-      // Clean up invalid tokens from Firestore
       for (const rid of recipientIds) {
         const devicesSnap = await adminFirestore.collection(`users/${rid}/devices`).where('token', 'in', invalidTokens).get();
         devicesSnap.forEach(doc => {
           doc.ref.delete();
         });
       }
+    }
+
+    // Marcar como enviada SOMENTE após o sucesso do envio da requisição (Idempotência)
+    if (expoRes.ok) {
+      await messageRef.update({ pushSent: true });
     }
 
     res.status(200).json({ success: true, result });

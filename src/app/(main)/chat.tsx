@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, Button, FlatList, StyleSheet, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, Button, FlatList, StyleSheet, Image, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { listenToMessages, sendMessage } from '../../services/chatService';
 import { ChatMessage } from '../../types/chat';
 import { getUserProfile } from '../../services/userService';
+import { getDoc, doc, getDocs, query, collection, where } from 'firebase/firestore';
+import { firestore } from '../../services/firebase';
 
 export default function ChatScreen() {
   const { user } = useAuth();
@@ -16,6 +18,11 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const [authorNames, setAuthorNames] = useState<Record<string, string>>({});
   const flatListRef = useRef<FlatList>(null);
+
+  // Mentions
+  const [chatMembers, setChatMembers] = useState<{uid: string, name: string}[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentions, setMentions] = useState<string[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -45,12 +52,46 @@ export default function ChatScreen() {
     loadAuthors();
   }, [messages, type]);
 
+  useEffect(() => {
+    if (type === 'group' && id) {
+      const fetchMembers = async () => {
+        const groupSnap = await getDoc(doc(firestore, 'groups', id));
+        if (groupSnap.exists()) {
+          const mIds = groupSnap.data().memberIds || [];
+          if (mIds.length === 0) return;
+          const usersSnap = await getDocs(query(collection(firestore, 'users'), where('uid', 'in', mIds)));
+          const loadedMembers: {uid: string, name: string}[] = [];
+          usersSnap.forEach(d => loadedMembers.push(d.data() as any));
+          setChatMembers(loadedMembers);
+        }
+      };
+      fetchMembers();
+    }
+  }, [type, id]);
+
+  const handleTextChange = (val: string) => {
+    setText(val);
+    const lastWord = val.split(' ').pop();
+    if (lastWord && lastWord.startsWith('@')) {
+      setMentionQuery(lastWord.substring(1).toLowerCase());
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const selectMention = (mUser: {uid: string, name: string}) => {
+    const words = text.split(' ');
+    words.pop();
+    const newText = words.join(' ') + (words.length > 0 ? ' ' : '') + `@${mUser.name} `;
+    setText(newText);
+    if (!mentions.includes(mUser.uid)) {
+      setMentions([...mentions, mUser.uid]);
+    }
+    setMentionQuery(null);
+  };
+
   const handleSend = useCallback(async () => {
     if (!text.trim() || !user || !id) return;
-    
-    // Simple logic for mentioned users
-    const mentionedUserIds: string[] = [];
-    // Could parse text for @... in a real app, but for now we leave it empty unless a UI for mention is added
 
     try {
       setSending(true);
@@ -60,9 +101,10 @@ export default function ChatScreen() {
         senderId: user.uid,
         text: text.trim(),
         target: { type: 'conversation' },
-        mentionedUserIds
+        mentionedUserIds: mentions
       });
       setText('');
+      setMentions([]);
     } catch (err) {
       const e = err as Error;
       console.error(e);
@@ -70,7 +112,7 @@ export default function ChatScreen() {
     } finally {
       setSending(false);
     }
-  }, [text, user, id, type]);
+  }, [text, user, id, type, mentions]);
 
   const goToProfileOrGroup = useCallback(() => {
     if (type === 'direct' && otherUserId) {
@@ -114,11 +156,22 @@ export default function ChatScreen() {
         ListEmptyComponent={<Text style={styles.empty}>Nenhuma mensagem. Comece a conversar!</Text>}
         contentContainerStyle={{ padding: 10, flexGrow: 1, justifyContent: 'flex-end' }}
       />
+
+      {mentionQuery !== null && chatMembers.length > 0 && (
+        <ScrollView style={styles.mentionBox} keyboardShouldPersistTaps="always">
+          {chatMembers.filter(m => m.name.toLowerCase().includes(mentionQuery) && m.uid !== user?.uid).map(m => (
+            <TouchableOpacity key={m.uid} style={styles.mentionItem} onPress={() => selectMention(m)}>
+              <Text>{m.name}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.input}
           value={text}
-          onChangeText={setText}
+          onChangeText={handleTextChange}
           placeholder="Digite uma mensagem..."
           editable={!sending}
         />
@@ -138,5 +191,7 @@ const styles = StyleSheet.create({
   messageText: { fontSize: 16 },
   inputContainer: { flexDirection: 'row', padding: 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'center' },
   input: { flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 20, paddingHorizontal: 15, marginRight: 10, minHeight: 40 },
-  empty: { textAlign: 'center', color: '#999', marginTop: 20 }
+  empty: { textAlign: 'center', color: '#999', marginTop: 20 },
+  mentionBox: { maxHeight: 150, backgroundColor: '#f9f9f9', borderTopWidth: 1, borderColor: '#eee' },
+  mentionItem: { padding: 10, borderBottomWidth: 1, borderColor: '#ddd' }
 });
