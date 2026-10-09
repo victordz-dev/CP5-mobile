@@ -21,7 +21,9 @@ server/.env.*
 *.json
 !package.json
 !app.json
+!eas.json
 !tsconfig.json
+!firebaseConfig.json
 !server/package.json
 !server/tsconfig.json
 !database.rules.json
