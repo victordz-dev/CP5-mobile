@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Button, ScrollView, TextInput, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { getDoc, doc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { firestore } from '../../services/firebase';
 import { ChatGroup, NotificationPolicy } from '../../types/group';
 import { ChatUser } from '../../types/user';
@@ -34,28 +34,30 @@ export default function GroupDetailsScreen() {
 
   useEffect(() => {
     if (!id) return;
-    const fetchData = async () => {
-      try {
-        const snap = await getDoc(doc(firestore, 'groups', id));
-        if (snap.exists()) {
-          const g = { id: snap.id, ...snap.data() } as ChatGroup;
-          setGroup(g);
-          setEditName(g.name);
-          setEditLimit(g.memberLimit.toString());
-          setEditPolicy(g.notificationPolicy || 'all_group_messages');
-          
+    const unsubscribe = onSnapshot(doc(firestore, 'groups', id), async (snap) => {
+      if (snap.exists()) {
+        const g = { id: snap.id, ...snap.data() } as ChatGroup;
+        setGroup(g);
+        setEditName(curr => curr === '' ? g.name : curr);
+        setEditLimit(curr => curr === '' ? g.memberLimit.toString() : curr);
+        setEditPolicy(curr => curr === 'all_group_messages' ? (g.notificationPolicy || 'all_group_messages') : curr);
+        
+        try {
           const users = await getAllUsers();
           setAllUsers(users);
           setMembers(users.filter(u => g.memberIds.includes(u.uid)));
-        } else {
-          setError('Grupo não encontrado');
-        }
-      } catch {
-        setError('Erro ao carregar.');
+        } catch {}
+        setLoading(false);
+      } else {
+        setError('Grupo não encontrado');
+        setLoading(false);
       }
+    }, (err) => {
+      setError('Erro ao carregar.');
       setLoading(false);
-    };
-    fetchData();
+    });
+
+    return () => unsubscribe();
   }, [id]);
 
   if (loading) return <Loading />;

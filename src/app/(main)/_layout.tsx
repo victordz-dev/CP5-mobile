@@ -14,7 +14,10 @@ export default function MainLayout() {
 
   useEffect(() => {
     if (user) {
-      registerForPushNotificationsAsync(user.uid);
+      registerForPushNotificationsAsync(user.uid).catch((err) => {
+        console.warn('Erro ao registrar push notifications', err);
+        alert('Aviso: Falha ao registrar dispositivo para notificações push.');
+      });
     }
   }, [user]);
 

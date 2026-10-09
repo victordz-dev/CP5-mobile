@@ -116,7 +116,7 @@ export default function ChatScreen() {
         senderId: user.uid,
         text: text.trim(),
         target: mentions.length > 0 ? { type: 'member', memberId: mentions[0] } : { type: 'conversation' },
-        mentionedUserIds: mentions.length > 0 ? mentions : ['none']
+        ...(mentions.length > 0 && { mentionedUserIds: mentions })
       });
       setText('');
       setMentions([]);
@@ -158,7 +158,7 @@ export default function ChatScreen() {
         keyExtractor={item => item.id}
         renderItem={({ item }) => {
           const isMine = item.senderId === user?.uid;
-          const authorName = type === 'group' && !isMine ? (authorNames[item.senderId] || '...') : null;
+          const authorName = type === 'group' ? (isMine ? 'Você' : (authorNames[item.senderId] || '...')) : null;
 
           return (
             <View style={[styles.messageBubble, isMine ? styles.mine : styles.theirs]}>

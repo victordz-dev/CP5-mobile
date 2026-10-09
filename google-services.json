@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "380104204084",
+    "project_id": "cp05-d6f00",
+    "storage_bucket": "cp05-d6f00.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:380104204084:android:8e739c2d719acac1c8cf61",
+        "android_client_info": {
+          "package_name": "com.victordz.cp5"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyABP0WDppBRPzu_dKOFOZ0Hupu7DKefWI0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -9,7 +9,7 @@ export type ChatMessage = {
   senderId: string;
   text: string;
   target: MessageTarget;
-  mentionedUserIds: string[];
+  mentionedUserIds?: string[];
   createdAt: number;
 };
 

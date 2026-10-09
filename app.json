@@ -28,7 +28,8 @@
     "extra": {
       "eas": {
         "projectId": "8b9f0a21-c121-4f3b-b2f5-b3e248cd9b82"
-      }
+      },
+      "EXPO_PUBLIC_API_URL": "https://cp5-mobile.onrender.com"
     },
     "plugins": [
       "expo-router",

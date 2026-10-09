@@ -16,6 +16,7 @@ export default function UsersScreen() {
   const router = useRouter();
   const [users, setUsers] = useState<ChatUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [startingChat, setStartingChat] = useState(false);
   const [search, setSearch] = useState('');
 
   const [error, setError] = useState('');
@@ -37,26 +38,34 @@ export default function UsersScreen() {
 
   const startChat = async (otherUser: ChatUser) => {
     if (!user) return;
-    const conversationId = generateDirectConversationId(user.uid, otherUser.uid);
-    
-    // Ensure direct conversation exists in Firestore
-    const convRef = doc(firestore, 'directConversations', conversationId);
-    const snap = await getDoc(convRef);
-    if (!snap.exists()) {
-      const now = new Date().getTime();
-      await setDoc(convRef, {
-        participantIds: [user.uid, otherUser.uid].sort(),
-        createdAt: now
-      });
-      await syncChatMembers(conversationId, 'direct');
-    }
+    try {
+      setStartingChat(true);
+      const conversationId = generateDirectConversationId(user.uid, otherUser.uid);
+      
+      // Ensure direct conversation exists in Firestore
+      const convRef = doc(firestore, 'directConversations', conversationId);
+      const snap = await getDoc(convRef);
+      if (!snap.exists()) {
+        const now = new Date().getTime();
+        await setDoc(convRef, {
+          participantIds: [user.uid, otherUser.uid].sort(),
+          createdAt: now
+        });
+        await syncChatMembers(conversationId, 'direct');
+      }
 
-    router.replace(`/(main)/chat?id=${conversationId}&type=direct&name=${encodeURIComponent(otherUser.name)}&photoUrl=${encodeURIComponent(otherUser.photoUrl)}&otherUserId=${otherUser.uid}`);
+      router.replace(`/(main)/chat?id=${conversationId}&type=direct&name=${encodeURIComponent(otherUser.name)}&photoUrl=${encodeURIComponent(otherUser.photoUrl)}&otherUserId=${otherUser.uid}`);
+    } catch (err) {
+      console.error(err);
+      setError('Erro ao iniciar a conversa. Verifique sua conexão.');
+    } finally {
+      setStartingChat(false);
+    }
   };
 
   const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
 
-  if (loading) return <Loading />;
+  if (loading || startingChat) return <Loading />;
   if (error) return <View style={styles.container}><ErrorMessage message={error} /></View>;
 
   return (
