@@ -1,6 +1,6 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { adminFirestore, adminDatabase } from '../services/firebaseAdmin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath } from 'firebase-admin/firestore';
 import { authenticate, AuthenticatedRequest } from '../middleware/authenticate';
 
 const router = Router();
@@ -41,7 +41,7 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
       return;
     }
 
-    const usersSnap = await adminFirestore.collection('users').where(FieldValue.documentId(), 'in', memberIds).get();
+    const usersSnap = await adminFirestore.collection('users').where(FieldPath.documentId(), 'in', memberIds).get();
     if (usersSnap.size !== memberIds.length) {
       res.status(400).json({ error: 'Um ou mais usuários informados não existem no sistema.' });
       return;
@@ -66,7 +66,7 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
 
     try {
       await syncGroupToRTDB(groupRef.id, memberIds);
-    } catch (e) {
+    } catch {
       await groupRef.delete();
       throw new Error('Falha ao sincronizar com RTDB. Revertendo criação.');
     }
@@ -126,7 +126,7 @@ router.post('/:id/join', authenticate, async (req: AuthenticatedRequest, res: Re
 
     try {
       await syncGroupToRTDB(id as string, finalMembers);
-    } catch (e) {
+    } catch {
       // Manual rollback
       await adminFirestore.collection('groups').doc(id as string).update({
         memberIds: FieldValue.arrayRemove(userId)
@@ -184,7 +184,7 @@ router.post('/:id/leave', authenticate, async (req: AuthenticatedRequest, res: R
 
     try {
       await syncGroupToRTDB(id as string, finalMembers);
-    } catch (e) {
+    } catch {
       // Manual rollback
       await adminFirestore.collection('groups').doc(id as string).update({
         memberIds: FieldValue.arrayUnion(userId)

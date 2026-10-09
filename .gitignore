@@ -22,11 +22,8 @@ server/.env.*
 !package.json
 !app.json
 !tsconfig.json
-!firebaseConfig.json
 !server/package.json
 !server/tsconfig.json
 !database.rules.json
-!google-services.json
-!GoogleService-Info.plist
 !firestore.rules
 !render.yaml
