@@ -106,9 +106,8 @@ export default function GroupDetailsScreen() {
       
       setGroup({ ...group, name: editName, photoUrl, memberLimit: newLimit, notificationPolicy: editPolicy });
       setEditing(false);
-    } catch (err) {
-      const e = err as Error;
-      setError(e.message);
+    } catch {
+      setError('Erro ao salvar as configurações.');
     } finally {
       setLoading(false);
     }
@@ -123,9 +122,8 @@ export default function GroupDetailsScreen() {
         setMembers([...members, m]);
         setGroup({ ...group, memberIds: [...group.memberIds, userId] });
       }
-    } catch (err) {
-      const e = err as Error;
-      alert(e.message);
+    } catch {
+      alert('Não foi possível adicionar o membro.');
     }
   };
 

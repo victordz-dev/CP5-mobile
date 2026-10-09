@@ -71,7 +71,7 @@ A API centraliza as operações sensíveis, evitando que o cliente (App) atue di
 - **`PUT /groups/:id`**: Edição. Restrito a nome, limite (nunca menor que os membros atuais) e foto.
 
 **Sincronização e Notificações:**
-- **`POST /sync/groups/:groupId`**: Força o re-espelhamento da lista de membros do Firestore para o Realtime Database, mantendo o controle de permissão de escrita e leitura do chat idêntico ao estado do grupo.
+- **`POST /sync-members`**: Força o re-espelhamento da lista de membros do Firestore para o Realtime Database, mantendo o controle de permissão de escrita e leitura do chat idêntico ao estado do grupo ou conversa direta.
 - **`POST /notifications/messages`**: Processador de Push Notifications. Recebe o evento de uma nova mensagem, confere o `conversationType` e as permissões de acesso, calcula e filtra os destinatários com base na `notificationPolicy` (ex: `mentioned_members`), utiliza lock atômico (`pushSent`) para garantir que o push não seja enviado em duplicidade, e dispara em lote para a Expo V2 API sem expor dados integrais da mensagem na tela bloqueada.
 - **`POST /notifications/receipts`**: Processador cron para ler os Push Tickets aguardando recibo e varrer da base devices desabilitados ou revogados (DeviceNotRegistered).
 

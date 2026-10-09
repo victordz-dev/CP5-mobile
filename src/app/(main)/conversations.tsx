@@ -49,9 +49,8 @@ export default function ConversationsScreen() {
       }
       setDirectItems(directs);
       setLoadingDirects(false);
-    }, (error) => {
-      console.error(error);
-      alert('Erro ao carregar conversas diretas: ' + error.message);
+    }, () => {
+      alert('Não foi possível carregar as conversas diretas. Verifique sua conexão.');
       setLoadingDirects(false);
     });
 
@@ -70,9 +69,8 @@ export default function ConversationsScreen() {
       });
       setGroupItems(groups);
       setLoadingGroups(false);
-    }, (error) => {
-      console.error(error);
-      alert('Erro ao carregar grupos: ' + error.message);
+    }, () => {
+      alert('Não foi possível carregar os grupos. Verifique sua conexão.');
       setLoadingGroups(false);
     });
 

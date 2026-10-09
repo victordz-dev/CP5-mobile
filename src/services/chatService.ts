@@ -51,9 +51,8 @@ export const listenToMessages = (conversationId: string, callback: (messages: Ch
       messages.push(child.val() as ChatMessage);
     });
     callback(messages);
-  }, (error) => {
-    console.error("Erro na sincronização de mensagens do RTDB:", error);
-    alert('Erro ao carregar mensagens em tempo real: ' + error.message);
+  }, () => {
+    alert('Problema na conexão do chat em tempo real.');
   });
 
   return unsubscribe;
