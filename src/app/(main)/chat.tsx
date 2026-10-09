@@ -121,9 +121,8 @@ export default function ChatScreen() {
       setText('');
       setMentions([]);
     } catch (err) {
-      const e = err as Error;
-      console.error(e);
-      alert('Aviso: A mensagem foi gravada, mas o envio da notificação push falhou (' + e.message + ')');
+      console.error(err);
+      alert('Aviso: A mensagem foi gravada, mas houve uma falha no servidor ao enviar a notificação para os destinatários.');
     } finally {
       setSending(false);
     }

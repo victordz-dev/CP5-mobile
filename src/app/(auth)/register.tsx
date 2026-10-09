@@ -67,8 +67,7 @@ export default function RegisterScreen() {
       });
 
     } catch (err) {
-      const e = err as Error;
-      setError(e.message || 'Erro ao realizar cadastro.');
+      setError('Ocorreu um erro ao realizar o cadastro. Verifique os dados e a conexão.');
     } finally {
       setLoading(false);
     }

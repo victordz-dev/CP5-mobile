@@ -102,8 +102,7 @@ export default function GroupFormScreen() {
 
       router.replace(`/(main)/chat?id=${groupId}&type=group&name=${encodeURIComponent(name)}&photoUrl=${encodeURIComponent(photoUrl)}`);
     } catch (err) {
-      const e = err as Error;
-      setError(e.message || 'Erro ao criar grupo.');
+      setError('Falha ao processar criação do grupo.');
     } finally {
       setLoading(false);
     }

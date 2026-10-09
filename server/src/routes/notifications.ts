@@ -124,7 +124,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       to: t.token,
       sound: 'default',
       title,
-      body: bodyText,
+      body: 'Você recebeu uma nova mensagem',
       data: { 
         conversationId, 
         conversationType: messageData.conversationType,
