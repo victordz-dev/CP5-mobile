@@ -101,7 +101,7 @@ export default function GroupFormScreen() {
       });
 
       router.replace(`/(main)/chat?id=${groupId}&type=group&name=${encodeURIComponent(name)}&photoUrl=${encodeURIComponent(photoUrl)}`);
-    } catch (err) {
+    } catch {
       setError('Falha ao processar criação do grupo.');
     } finally {
       setLoading(false);

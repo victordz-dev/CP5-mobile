@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { adminDatabase, adminFirestore, adminMessaging } from '../services/firebaseAdmin';
+import { adminDatabase, adminFirestore } from '../services/firebaseAdmin';
 import { authenticate, AuthenticatedRequest } from '../middleware/authenticate';
 
 const router = Router();
@@ -48,7 +48,6 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
 
     let allParticipants: string[] = [];
     let title = 'Nova mensagem';
-    let bodyText = messageData.text;
     let groupData: FirebaseFirestore.DocumentData | null = null;
 
     if (messageData.conversationType === 'direct') {
@@ -195,7 +194,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
     if (req.body.messageId && req.body.conversationId) {
       try {
          await adminDatabase.ref(`messages/${req.body.conversationId}/${req.body.messageId}`).update({ pushSent: false });
-      } catch (e) {}
+      } catch {}
     }
     res.status(500).json({ error: 'Internal server error' });
   }

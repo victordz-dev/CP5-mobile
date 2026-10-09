@@ -66,7 +66,7 @@ export default function RegisterScreen() {
         photoUrl,
       });
 
-    } catch (err) {
+    } catch {
       setError('Ocorreu um erro ao realizar o cadastro. Verifique os dados e a conexão.');
     } finally {
       setLoading(false);

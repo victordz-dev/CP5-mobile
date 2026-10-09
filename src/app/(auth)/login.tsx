@@ -17,7 +17,7 @@ export default function LoginScreen() {
       setError('');
       await login(email, password);
       // Navigation is handled by layout
-    } catch (err) {
+    } catch {
       setError('Credenciais inválidas ou erro de rede. Tente novamente.');
     } finally {
       setLoading(false);
