@@ -116,7 +116,7 @@ export default function ChatScreen() {
         senderId: user.uid,
         text: text.trim(),
         target: mentions.length > 0 ? { type: 'member', memberId: mentions[0] } : { type: 'conversation' },
-        mentionedUserIds: mentions
+        mentionedUserIds: mentions.length > 0 ? mentions : ['none']
       });
       setText('');
       setMentions([]);

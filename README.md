@@ -75,6 +75,19 @@ A API centraliza as operações sensíveis, evitando que o cliente (App) atue di
 - **`POST /notifications/messages`**: Processador de Push Notifications. Recebe o evento de uma nova mensagem, confere o `conversationType` e as permissões de acesso, calcula e filtra os destinatários com base na `notificationPolicy` (ex: `mentioned_members`), utiliza lock atômico (`pushSent`) para garantir que o push não seja enviado em duplicidade, e dispara em lote para a Expo V2 API sem expor dados integrais da mensagem na tela bloqueada.
 - **`POST /notifications/receipts`**: Processador cron para ler os Push Tickets aguardando recibo e varrer da base devices desabilitados ou revogados (DeviceNotRegistered).
 
+## ⚙️ Configuração do Firebase (Out of the box)
+
+O projeto lê nativamente as chaves do Firebase do arquivo JSON centralizado `firebaseConfig.json`. Diferente das práticas que escondem o identificador público do projeto no `.env`, **este repositório contém o arquivo `firebaseConfig.json` versionado** intencionalmente, para atender ao requisito de facilidade de execução ("clone, instale, rode"). Ele está abastecido apenas com **chaves públicas do cliente** (sem `serviceAccountKey`).
+
+Para que o ambiente funcione corretamente, certifique-se de habilitar os seguintes serviços no Firebase Console do seu projeto correspondente às chaves:
+- **Authentication:** Provedor E-mail/Senha obrigatoriamente habilitado.
+- **Firestore Database:** Para armazenar os Perfis e Configurações de Grupos.
+- **Realtime Database (RTDB):** Para persistir o Chat em Tempo Real.
+- **Storage:** Para armazenar fotos de Perfil e de Grupos.
+- **Cloud Messaging (FCM):** Para gerenciar os tokens e disparos de Push Notification.
+
+Nenhuma credencial administrativa está exposta. Os segredos administrativos do Firebase-Admin devem viver exclusivamente nas variáveis de ambiente seguras do servidor NodeJS (`server/.env`).
+
 ---
 
 ## 🔒 Regras de Segurança e Arquitetura
