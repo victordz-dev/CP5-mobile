@@ -1,7 +1,35 @@
 import { doc, setDoc } from 'firebase/firestore';
-import { firestore, auth } from './firebase';
-import Constants from 'expo-constants';
+import { firestore } from './firebase';
 import { ChatUser } from '../types/user';
+import { authenticatedApiFetch, readApiError } from './api';
+
+function parseChatUsers(value: unknown): ChatUser[] {
+  if (!Array.isArray(value)) {
+    throw new Error('A API retornou uma lista de usuários inválida.');
+  }
+
+  return value.flatMap((item) => {
+    if (
+      typeof item !== 'object'
+      || item === null
+      || !('uid' in item)
+      || typeof item.uid !== 'string'
+      || !('name' in item)
+      || typeof item.name !== 'string'
+    ) {
+      return [];
+    }
+    return [{
+      uid: item.uid,
+      name: item.name,
+      email: 'email' in item && typeof item.email === 'string' ? item.email : '',
+      phoneNumber: 'phoneNumber' in item && typeof item.phoneNumber === 'string' ? item.phoneNumber : '',
+      birthDate: 'birthDate' in item && typeof item.birthDate === 'string' ? item.birthDate : '',
+      photoUrl: 'photoUrl' in item && typeof item.photoUrl === 'string' ? item.photoUrl : '',
+      createdAt: 'createdAt' in item && typeof item.createdAt === 'number' ? item.createdAt : 0,
+    }];
+  });
+}
 
 export const createUserProfile = async (uid: string, profile: Omit<ChatUser, 'uid' | 'createdAt'>) => {
   const userDoc = doc(firestore, 'users', uid);
@@ -11,27 +39,33 @@ export const createUserProfile = async (uid: string, profile: Omit<ChatUser, 'ui
   });
 };
 
+export const updateUserProfile = async (uid: string, data: Partial<Omit<ChatUser, 'uid' | 'createdAt'>>) => {
+  const userDoc = doc(firestore, 'users', uid);
+  await setDoc(userDoc, data, { merge: true });
+};
+
 export const getUserProfile = async (uid: string): Promise<ChatUser | null> => {
-  const token = await auth.currentUser?.getIdToken();
-  const apiUrl = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL;
-  const res = await fetch(`${apiUrl}/sync-members/users/profiles`, {
+  const profiles = await getUserProfiles([uid]);
+  return profiles[0] ?? null;
+};
+
+export const getUserProfiles = async (userIds: string[]): Promise<ChatUser[]> => {
+  const res = await authenticatedApiFetch('/sync-members/users/profiles', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ userIds: [uid] })
+    body: JSON.stringify({ userIds })
   });
-  if (res.ok) {
-    const data = await res.json();
-    return data[0] || null;
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Falha ao carregar perfis'));
   }
-  return null;
+  const data: unknown = await res.json();
+  return parseChatUsers(data);
 };
 
 export const getAllUsers = async (): Promise<ChatUser[]> => {
-  const token = await auth.currentUser?.getIdToken();
-  const apiUrl = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL;
-  const res = await fetch(`${apiUrl}/sync-members/users`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  if (res.ok) return await res.json();
-  throw new Error('Falha ao carregar usuários. Verifique sua conexão.');
+  const res = await authenticatedApiFetch('/sync-members/users');
+  if (!res.ok) {
+    throw new Error(await readApiError(res, 'Falha ao carregar usuários'));
+  }
+  const data: unknown = await res.json();
+  return parseChatUsers(data);
 };

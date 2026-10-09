@@ -1,57 +1,40 @@
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { firestore, auth } from './firebase';
+import { firestore } from './firebase';
 import { ChatGroup } from '../types/group';
-import Constants from 'expo-constants';
-
-const getApiUrl = () => Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL;
+import { authenticatedApiFetch, readApiError } from './api';
 
 export const createGroup = async (groupData: Omit<ChatGroup, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> => {
-  const token = await auth.currentUser?.getIdToken();
-  const res = await fetch(`${getApiUrl()}/groups`, {
+  const res = await authenticatedApiFetch('/groups', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
     body: JSON.stringify(groupData)
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Falha ao criar grupo');
+    throw new Error(await readApiError(res, 'Falha ao criar grupo'));
   }
-  const data = await res.json();
+  const data: unknown = await res.json();
+  if (typeof data !== 'object' || data === null || !('groupId' in data) || typeof data.groupId !== 'string') {
+    throw new Error('A API retornou uma resposta inválida ao criar o grupo.');
+  }
   return data.groupId;
 };
 
 export const joinGroup = async (groupId: string, userId: string) => {
-  const token = await auth.currentUser?.getIdToken();
-  const res = await fetch(`${getApiUrl()}/groups/${groupId}/join`, {
+  const res = await authenticatedApiFetch(`/groups/${encodeURIComponent(groupId)}/join`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
     body: JSON.stringify({ userId })
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Falha ao adicionar membro');
+    throw new Error(await readApiError(res, 'Falha ao adicionar integrante'));
   }
 };
 
 export const leaveGroup = async (groupId: string, userId: string) => {
-  const token = await auth.currentUser?.getIdToken();
-  const res = await fetch(`${getApiUrl()}/groups/${groupId}/leave`, {
+  const res = await authenticatedApiFetch(`/groups/${encodeURIComponent(groupId)}/leave`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
     body: JSON.stringify({ userId })
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Falha ao remover membro');
+    throw new Error(await readApiError(res, 'Falha ao remover integrante'));
   }
 };
 
@@ -65,20 +48,14 @@ export const addMember = async (groupId: string, userId: string) => {
 
 export const updateGroupConfig = async (
   groupId: string,
-  updates: Partial<Pick<ChatGroup, 'name' | 'photoUrl' | 'memberLimit' | 'notificationPolicy' | 'memberIds'>>
+  updates: Partial<Pick<ChatGroup, 'name' | 'photoUrl' | 'memberLimit' | 'notificationPolicy'>>
 ) => {
-  const token = await auth.currentUser?.getIdToken();
-  const res = await fetch(`${getApiUrl()}/groups/${groupId}`, {
+  const res = await authenticatedApiFetch(`/groups/${encodeURIComponent(groupId)}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
     body: JSON.stringify(updates)
   });
   if (!res.ok) {
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || 'Falha ao atualizar grupo');
+    throw new Error(await readApiError(res, 'Falha ao atualizar grupo'));
   }
 };
 

@@ -6,19 +6,19 @@ export interface AuthenticatedRequest extends Request {
   user?: DecodedIdToken;
 }
 
-export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
+export const authenticate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Unauthorized' });
+  const match = typeof authHeader === 'string' ? /^Bearer\s+(\S+)$/i.exec(authHeader) : null;
+  if (!match) {
+    res.status(401).json({ error: 'Token de autenticação ausente ou inválido.' });
     return;
   }
 
-  const token = authHeader.split('Bearer ')[1];
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
+    const decodedToken = await adminAuth.verifyIdToken(match[1], true);
     (req as AuthenticatedRequest).user = decodedToken;
     next();
-  } catch (error) {
-    res.status(401).json({ error: 'Unauthorized' });
+  } catch {
+    res.status(401).json({ error: 'A sessão expirou ou foi revogada. Entre novamente.' });
   }
 };

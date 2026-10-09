@@ -16,8 +16,10 @@ web-build/
 # Secrets
 .env
 .env.*
+!.env.example
 server/.env
 server/.env.*
+!server/.env.example
 *.json
 !package.json
 !app.json
@@ -26,6 +28,7 @@ server/.env.*
 !firebaseConfig.json
 !google-services.json
 !server/package.json
+!server/package-lock.json
 !server/tsconfig.json
 !database.rules.json
 !firestore.rules

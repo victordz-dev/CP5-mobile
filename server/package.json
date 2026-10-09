@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/app.js",
-    "dev": "nodemon src/app.ts"
+    "dev": "nodemon src/app.ts",
+    "test": "npm run build && node --test dist/domain/recipients.test.js",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",

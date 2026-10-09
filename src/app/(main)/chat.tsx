@@ -1,14 +1,15 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, Button, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { listenToMessages, sendMessage } from '../../services/chatService';
 import { ChatMessage } from '../../types/chat';
-import { getUserProfile } from '../../services/userService';
+import { getUserProfile, getUserProfiles } from '../../services/userService';
 import { getDoc, doc } from 'firebase/firestore';
-import { firestore, auth } from '../../services/firebase';
-import Constants from 'expo-constants';
+import { firestore } from '../../services/firebase';
 import { Avatar } from '../../components/Avatar';
+import { theme } from '../../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function ChatScreen() {
   const { user } = useAuth();
@@ -67,17 +68,7 @@ export default function ChatScreen() {
         if (groupSnap.exists()) {
           const mIds = groupSnap.data().memberIds || [];
           if (mIds.length === 0) return;
-          const apiUrl = Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_API_URL;
-          const token = await auth.currentUser?.getIdToken();
-          const usersRes = await fetch(`${apiUrl}/sync-members/users/profiles`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ userIds: mIds })
-          });
-          if (usersRes.ok) {
-            const loadedMembers = await usersRes.json();
-            setChatMembers(loadedMembers);
-          }
+          setChatMembers(await getUserProfiles(mIds));
         }
       };
       fetchMembers();
@@ -120,9 +111,13 @@ export default function ChatScreen() {
       });
       setText('');
       setMentions([]);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert('Aviso: A mensagem foi gravada, mas houve uma falha no servidor ao enviar a notificação para os destinatários.');
+      if (err instanceof Error && err.message.includes('notificação')) {
+        alert('Aviso: A mensagem foi gravada, mas houve uma falha no servidor ao enviar a notificação para os destinatários.');
+      } else {
+        alert('Falha ao enviar a mensagem. Verifique a conexão ou as permissões do banco de dados.');
+      }
     } finally {
       setSending(false);
     }
@@ -141,13 +136,21 @@ export default function ChatScreen() {
   }, [messages]);
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       <Stack.Screen 
         options={{
           title: name || 'Chat',
+          headerStyle: { backgroundColor: theme.colors.card },
+          headerTintColor: theme.colors.text,
+          headerShadowVisible: false,
           headerRight: () => (
-            <TouchableOpacity onPress={goToProfileOrGroup}>
+            <TouchableOpacity onPress={goToProfileOrGroup} activeOpacity={0.7} style={styles.headerRight}>
               <Avatar uri={photoUrl} style={styles.headerAvatar} />
+              <Ionicons name="information-circle-outline" size={24} color={theme.colors.primaryDark} style={{ marginLeft: 8 }} />
             </TouchableOpacity>
           )
         }} 
@@ -161,21 +164,28 @@ export default function ChatScreen() {
           const authorName = type === 'group' ? (isMine ? 'Você' : (authorNames[item.senderId] || '...')) : null;
 
           return (
-            <View style={[styles.messageBubble, isMine ? styles.mine : styles.theirs]}>
-              {authorName && <Text style={styles.authorText}>{authorName}</Text>}
-              <Text style={styles.messageText}>{item.text}</Text>
+            <View style={[styles.messageWrapper, isMine ? styles.wrapperMine : styles.wrapperTheirs]}>
+              <View style={[styles.messageBubble, isMine ? styles.mine : styles.theirs]}>
+                {authorName && <Text style={[styles.authorText, isMine && styles.authorTextMine]}>{authorName}</Text>}
+                <Text style={[styles.messageText, isMine ? styles.messageTextMine : styles.messageTextTheirs]}>{item.text}</Text>
+              </View>
             </View>
           );
         }}
-        ListEmptyComponent={<Text style={styles.empty}>Nenhuma mensagem. Comece a conversar!</Text>}
-        contentContainerStyle={{ padding: 10, flexGrow: 1, justifyContent: 'flex-end' }}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.border} />
+            <Text style={styles.emptyText}>Nenhuma mensagem. Comece a conversar!</Text>
+          </View>
+        }
+        contentContainerStyle={styles.listContent}
       />
 
       {mentionQuery !== null && chatMembers.length > 0 && (
         <ScrollView style={styles.mentionBox} keyboardShouldPersistTaps="always">
           {chatMembers.filter(m => m.name.toLowerCase().includes(mentionQuery) && m.uid !== user?.uid).map(m => (
             <TouchableOpacity key={m.uid} style={styles.mentionItem} onPress={() => selectMention(m)}>
-              <Text>{m.name}</Text>
+              <Text style={styles.mentionText}>{m.name}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -187,25 +197,148 @@ export default function ChatScreen() {
           value={text}
           onChangeText={handleTextChange}
           placeholder="Digite uma mensagem..."
+          placeholderTextColor={theme.colors.textSecondary}
           editable={!sending}
+          multiline
         />
-        {sending ? <ActivityIndicator size="small" /> : <Button title="Enviar" onPress={handleSend} disabled={!text.trim()} />}
+        <TouchableOpacity 
+          style={[styles.sendButton, !text.trim() && styles.sendButtonDisabled]} 
+          onPress={handleSend} 
+          disabled={!text.trim() || sending}
+        >
+          {sending ? (
+            <ActivityIndicator size="small" color="#FFF" />
+          ) : (
+            <Ionicons name="send" size={20} color={text.trim() ? "#FFF" : theme.colors.textSecondary} style={{ marginLeft: 2 }} />
+          )}
+        </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  headerAvatar: { width: 35, height: 35, borderRadius: 17.5, marginRight: 10 },
-  messageBubble: { padding: 10, borderRadius: 10, marginVertical: 5, maxWidth: '80%' },
-  mine: { backgroundColor: '#dcf8c6', alignSelf: 'flex-end' },
-  theirs: { backgroundColor: '#fff', alignSelf: 'flex-start', borderWidth: 1, borderColor: '#eee' },
-  authorText: { fontSize: 12, color: '#075e54', fontWeight: 'bold', marginBottom: 2 },
-  messageText: { fontSize: 16 },
-  inputContainer: { flexDirection: 'row', padding: 10, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#eee', alignItems: 'center' },
-  input: { flex: 1, borderWidth: 1, borderColor: '#ccc', borderRadius: 20, paddingHorizontal: 15, marginRight: 10, minHeight: 40 },
-  empty: { textAlign: 'center', color: '#999', marginTop: 20 },
-  mentionBox: { maxHeight: 150, backgroundColor: '#f9f9f9', borderTopWidth: 1, borderColor: '#eee' },
-  mentionItem: { padding: 10, borderBottomWidth: 1, borderColor: '#ddd' }
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  listContent: {
+    padding: theme.spacing.md,
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+  },
+  messageWrapper: {
+    flexDirection: 'row',
+    marginVertical: 4,
+  },
+  wrapperMine: {
+    justifyContent: 'flex-end',
+  },
+  wrapperTheirs: {
+    justifyContent: 'flex-start',
+  },
+  messageBubble: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    maxWidth: '80%',
+    ...theme.shadows.sm,
+  },
+  mine: {
+    backgroundColor: theme.colors.primaryDark,
+    borderBottomRightRadius: 4,
+  },
+  theirs: {
+    backgroundColor: theme.colors.card,
+    borderBottomLeftRadius: 4,
+  },
+  authorText: {
+    ...theme.typography.caption,
+    fontWeight: 'bold',
+    color: theme.colors.primaryDark,
+    marginBottom: 4,
+  },
+  authorTextMine: {
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  messageText: {
+    ...theme.typography.body,
+    lineHeight: 22,
+  },
+  messageTextMine: {
+    color: '#FFFFFF',
+  },
+  messageTextTheirs: {
+    color: theme.colors.text,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    padding: theme.spacing.sm,
+    paddingBottom: Platform.OS === 'ios' ? theme.spacing.xl : theme.spacing.sm,
+    backgroundColor: theme.colors.card,
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
+    alignItems: 'flex-end',
+  },
+  input: {
+    flex: 1,
+    backgroundColor: theme.colors.inputBackground,
+    borderRadius: 24,
+    paddingHorizontal: theme.spacing.lg,
+    paddingTop: 12,
+    paddingBottom: 12,
+    marginRight: theme.spacing.sm,
+    minHeight: 48,
+    maxHeight: 120,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  sendButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: theme.colors.primaryDark,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...theme.shadows.sm,
+  },
+  sendButtonDisabled: {
+    backgroundColor: theme.colors.inputBackground,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: theme.spacing.xxl,
+  },
+  emptyText: {
+    ...theme.typography.body,
+    color: theme.colors.textSecondary,
+    marginTop: theme.spacing.md,
+  },
+  mentionBox: {
+    maxHeight: 150,
+    backgroundColor: theme.colors.card,
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
+    ...theme.shadows.md,
+  },
+  mentionItem: {
+    padding: theme.spacing.md,
+    borderBottomWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  mentionText: {
+    ...theme.typography.body,
+    fontWeight: '500',
+    color: theme.colors.primaryDark,
+  }
 });

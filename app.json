@@ -20,16 +20,21 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.victordz.cp5",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
+      "EXPO_PUBLIC_API_URL": "https://cp5-mobile.onrender.com",
+      "router": {},
       "eas": {
-        "projectId": "8b9f0a21-c121-4f3b-b2f5-b3e248cd9b82"
-      },
-      "EXPO_PUBLIC_API_URL": "https://cp5-mobile.onrender.com"
+        "projectId": "f322b958-2225-42c5-b8cc-8d1ea929d49d"
+      }
     },
     "plugins": [
       "expo-router",
@@ -42,6 +47,7 @@
       "expo-status-bar",
       "expo-notifications"
     ],
-    "scheme": "cp5"
+    "scheme": "cp5",
+    "owner": "victordz.dev"
   }
 }

@@ -1,12 +1,30 @@
-import { initializeApp, getApps } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { initializeAuth, inMemoryPersistence, getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
 import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebaseConfig.json';
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+// Supress Firebase Auth warning about AsyncStorage
+const originalWarn = console.warn;
+console.warn = (...args) => {
+  if (typeof args[0] === 'string' && args[0].includes('AsyncStorage')) return;
+  originalWarn(...args);
+};
 
-export const auth = getAuth(app);
+let app: FirebaseApp;
+let isNewApp = false;
+
+if (getApps().length === 0) {
+  app = initializeApp(firebaseConfig);
+  isNewApp = true;
+} else {
+  app = getApps()[0];
+}
+
+export const auth = isNewApp ? initializeAuth(app, {
+  persistence: inMemoryPersistence
+}) : getAuth(app);
+
 export const database = getDatabase(app);
 export const firestore = getFirestore(app);
 

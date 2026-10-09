@@ -1,267 +1,346 @@
-import { Router, Request, Response } from 'express';
-import { adminDatabase, adminFirestore } from '../services/firebaseAdmin';
+import { timingSafeEqual } from 'node:crypto';
+import { Request, Response, Router } from 'express';
+import { DocumentReference } from 'firebase-admin/firestore';
+import {
+  isDocumentId,
+  isJsonObject,
+  isNonEmptyString,
+  parseDirectConversation,
+  parseGroupRecord,
+  parseStoredMessage,
+} from '../domain/contracts';
+import { selectDirectRecipients, selectGroupRecipients } from '../domain/recipients';
 import { authenticate, AuthenticatedRequest } from '../middleware/authenticate';
+import { adminDatabase, adminFirestore } from '../services/firebaseAdmin';
+import {
+  ExpoPushMessage,
+  getExpoPushReceipts,
+  isExpoPushToken,
+  sendExpoPushMessages,
+} from '../services/expoPush';
 
 const router = Router();
 
-router.post('/messages', authenticate, async (req: Request, res: Response) => {
-  const { conversationId, messageId } = req.body;
-  const user = (req as AuthenticatedRequest).user;
+interface DeviceToken {
+  token: string;
+  userId: string;
+  devicePath: string;
+}
+
+interface PushTicketRecord extends DeviceToken {
+  id: string;
+  createdAt: number;
+}
+
+async function deleteDocumentReferences(references: readonly DocumentReference[]): Promise<void> {
+  const uniqueReferences = [...new Map(references.map((reference) => [reference.path, reference])).values()];
+  for (let offset = 0; offset < uniqueReferences.length; offset += 400) {
+    const batch = adminFirestore.batch();
+    uniqueReferences.slice(offset, offset + 400).forEach((reference) => batch.delete(reference));
+    await batch.commit();
+  }
+}
+
+async function loadEnabledDeviceTokens(userIds: readonly string[]): Promise<DeviceToken[]> {
+  const snapshots = await Promise.all(
+    userIds.map(async (userId) => ({
+      userId,
+      snapshot: await adminFirestore
+        .collection(`users/${userId}/devices`)
+        .where('enabled', '==', true)
+        .get(),
+    })),
+  );
+
+  const validTokens = new Map<string, DeviceToken>();
+  const invalidReferences: DocumentReference[] = [];
+  snapshots.forEach(({ userId, snapshot }) => {
+    snapshot.docs.forEach((document) => {
+      const tokenValue: unknown = document.data().token;
+      if (typeof tokenValue !== 'string' || !isExpoPushToken(tokenValue)) {
+        invalidReferences.push(document.ref);
+        return;
+      }
+      if (!validTokens.has(tokenValue)) {
+        validTokens.set(tokenValue, {
+          token: tokenValue,
+          userId,
+          devicePath: document.ref.path,
+        });
+      }
+    });
+  });
+
+  await deleteDocumentReferences(invalidReferences);
+  return [...validTokens.values()];
+}
+
+async function claimMessageForPush(messagePath: string): Promise<{ acquired: boolean; state: unknown }> {
+  const pushStateRef = adminDatabase.ref(`${messagePath}/pushSent`);
+  const result = await pushStateRef.transaction((currentState: unknown) => {
+    if (currentState === null || currentState === false) {
+      return 'pending';
+    }
+    return;
+  }, undefined, false);
+
+  return { acquired: result.committed, state: result.snapshot.val() as unknown };
+}
+
+async function setPushState(messagePath: string, state: 'sent' | 'skipped' | 'rejected' | 'failed') {
+  await adminDatabase.ref(`${messagePath}/pushSent`).set(state);
+}
+
+function isAuthorizedCronRequest(req: Request): boolean {
+  const expected = process.env.CRON_SECRET;
+  const provided = req.headers['x-cron-secret'];
+  if (!expected || typeof provided !== 'string') {
+    return false;
+  }
+
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  return expectedBuffer.length === providedBuffer.length
+    && timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+router.post('/messages', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user;
+  const body: unknown = req.body;
   if (!user) {
-    res.status(401).json({ error: 'Unauthorized' });
+    res.status(401).json({ error: 'Não autorizado.' });
+    return;
+  }
+  if (
+    !isJsonObject(body)
+    || !isDocumentId(body.conversationId)
+    || !isDocumentId(body.messageId)
+    || Object.keys(body).some((key) => key !== 'conversationId' && key !== 'messageId')
+  ) {
+    res.status(400).json({ error: 'Informe somente conversationId e messageId válidos.' });
     return;
   }
 
-  if (!conversationId || !messageId) {
-    res.status(400).json({ error: 'Missing conversationId or messageId' });
-    return;
-  }
+  const { conversationId, messageId } = body;
+  const messagePath = `messages/${conversationId}/${messageId}`;
+  let claimAcquired = false;
 
   try {
-    const messageRef = adminDatabase.ref(`messages/${conversationId}/${messageId}`);
-    const messageSnap = await messageRef.once('value');
-    if (!messageSnap.exists()) {
-      res.status(404).json({ error: 'Message not found' });
-      return;
-    }
-    const messageData = messageSnap.val();
-    
-    if (messageData.senderId !== user.uid) {
-      res.status(403).json({ error: 'You are not the sender of this message' });
+    const messageSnapshot = await adminDatabase.ref(messagePath).once('value');
+    if (!messageSnapshot.exists()) {
+      res.status(404).json({ error: 'Mensagem não encontrada.' });
       return;
     }
 
-    // Atomic transaction for idempotency
-    const txResult = await messageRef.transaction((currentData) => {
-      if (currentData === null) return null;
-      if (currentData.pushSent) {
-        return; // Abort transaction if already sent or pending
-      }
-      currentData.pushSent = 'pending'; // Mark as sent/pending to acquire lock
-      return currentData;
-    });
-
-    if (!txResult.committed) {
-      res.status(200).json({ success: true, reason: 'Push already sent or message deleted' });
+    const message = parseStoredMessage(messageSnapshot.val() as unknown);
+    if (!message || message.id !== messageId || message.conversationId !== conversationId) {
+      res.status(422).json({ error: 'A mensagem persistida possui dados inválidos.' });
+      return;
+    }
+    if (message.senderId !== user.uid) {
+      res.status(403).json({ error: 'Somente o remetente pode solicitar o push desta mensagem.' });
       return;
     }
 
-    let allParticipants: string[] = [];
-    let title = 'Nova mensagem';
-    let groupData: FirebaseFirestore.DocumentData | null = null;
+    const claim = await claimMessageForPush(messagePath);
+    if (!claim.acquired) {
+      res.status(200).json({ success: true, duplicate: true, state: claim.state });
+      return;
+    }
+    claimAcquired = true;
 
-    if (messageData.conversationType === 'direct') {
-      const convSnap = await adminFirestore.doc(`directConversations/${conversationId}`).get();
-      if (convSnap.exists) {
-        allParticipants = convSnap.data()?.participantIds || [];
-      }
-    } else if (messageData.conversationType === 'group') {
-      const groupSnap = await adminFirestore.doc(`groups/${conversationId}`).get();
-      if (!groupSnap.exists) {
-        await messageRef.update({ pushSent: false });
-        res.status(404).json({ error: 'Group not found' });
+    let recipientIds: string[];
+    let title: string;
+    let notificationName: string;
+
+    const senderSnapshot = await adminFirestore.doc(`users/${user.uid}`).get();
+    const senderData: unknown = senderSnapshot.data();
+    const senderName = isJsonObject(senderData) && isNonEmptyString(senderData.name, 80)
+      ? senderData.name
+      : 'Usuário';
+
+    if (message.conversationType === 'direct') {
+      const conversationSnapshot = await adminFirestore
+        .doc(`directConversations/${conversationId}`)
+        .get();
+      const conversation = parseDirectConversation(conversationSnapshot.data());
+      const expectedId = conversation?.participantIds.join('_');
+      if (!conversationSnapshot.exists || !conversation || expectedId !== conversationId) {
+        await setPushState(messagePath, 'rejected');
+        res.status(404).json({ error: 'Conversa individual não encontrada ou inválida.' });
         return;
       }
-      groupData = groupSnap.data() || null;
-      allParticipants = groupData?.memberIds || [];
-      title = `Nova mensagem em ${groupData?.name || 'Grupo'}`;
-    }
-
-    // Validate sender belongs to conversation
-    if (!allParticipants.includes(user.uid)) {
-      await messageRef.update({ pushSent: false });
-      res.status(403).json({ error: 'Sender does not belong to the conversation' });
-      return;
-    }
-
-    // Filter recipients and mentions
-    let recipientIds: string[] = [];
-
-    if (messageData.conversationType === 'direct') {
-      recipientIds = allParticipants.filter((id: string) => id !== user.uid);
-    } else if (messageData.conversationType === 'group' && groupData) {
-      const policy = groupData.notificationPolicy || 'all_group_messages';
-
-      if (policy === 'disabled' || policy === 'direct_messages_only') {
-        // Mark as sent even if disabled to avoid retrying
-        await messageRef.update({ pushSent: true });
-        res.status(200).json({ success: true, reason: 'Notifications disabled by policy' });
+      if (!conversation.participantIds.includes(user.uid)) {
+        await setPushState(messagePath, 'rejected');
+        res.status(403).json({ error: 'O remetente não participa desta conversa.' });
         return;
       }
 
-      if (policy === 'all_group_messages') {
-        recipientIds = allParticipants.filter((id: string) => id !== user.uid);
-      } else if (policy === 'mentioned_members') {
-        const mentionedIds = messageData.mentionedUserIds || [];
-        // Validate mentioned users belong to conversation
-        recipientIds = mentionedIds.filter((id: string) => id !== user.uid && allParticipants.includes(id));
+      recipientIds = selectDirectRecipients(
+        conversation.participantIds,
+        user.uid,
+        conversation.notificationPolicy === 'disabled',
+      );
+      title = senderName;
+      notificationName = senderName;
+    } else {
+      const groupSnapshot = await adminFirestore.doc(`groups/${conversationId}`).get();
+      const group = parseGroupRecord(groupSnapshot.data());
+      if (!groupSnapshot.exists || !group || group.id !== conversationId) {
+        await setPushState(messagePath, 'rejected');
+        res.status(404).json({ error: 'Grupo não encontrado ou inválido.' });
+        return;
       }
+      if (!group.memberIds.includes(user.uid)) {
+        await setPushState(messagePath, 'rejected');
+        res.status(403).json({ error: 'O remetente não é integrante ativo do grupo.' });
+        return;
+      }
+
+      recipientIds = selectGroupRecipients(group, message);
+      title = group.name;
+      notificationName = group.name;
     }
 
     if (recipientIds.length === 0) {
-      await messageRef.update({ pushSent: true });
-      res.status(200).json({ success: true, reason: 'No valid recipients to notify' });
+      await setPushState(messagePath, 'skipped');
+      res.status(200).json({ success: true, notifiedDevices: 0 });
       return;
     }
 
-    const tokensMap: { token: string; userId: string }[] = [];
-    for (const rid of recipientIds) {
-      const devicesSnap = await adminFirestore.collection(`users/${rid}/devices`).where('enabled', '==', true).get();
-      devicesSnap.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-        const t = doc.data().token as string;
-        if (t) tokensMap.push({ token: t, userId: rid });
-      });
-    }
-
-    if (tokensMap.length === 0) {
-      await messageRef.update({ pushSent: true });
-      res.status(200).json({ success: true, reason: 'No valid device tokens found' });
+    const deviceTokens = await loadEnabledDeviceTokens(recipientIds);
+    if (deviceTokens.length === 0) {
+      await setPushState(messagePath, 'skipped');
+      res.status(200).json({ success: true, notifiedDevices: 0 });
       return;
     }
 
-    const messages = tokensMap.map(t => ({
-      to: t.token,
+    const notificationBody = message.conversationType === 'group'
+      ? `${senderName} enviou uma mensagem.`
+      : 'Você recebeu uma nova mensagem.';
+    const notifications: ExpoPushMessage[] = deviceTokens.map(({ token }) => ({
+      to: token,
       sound: 'default',
       title,
-      body: 'Você recebeu uma nova mensagem',
-      data: { 
-        conversationId, 
-        conversationType: messageData.conversationType,
-        name: messageData.conversationType === 'group' ? (groupData?.name || 'Grupo') : 'Usuário' 
+      body: notificationBody,
+      data: {
+        conversationId,
+        conversationType: message.conversationType,
+        name: notificationName,
       },
     }));
 
-    const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(messages),
-    });
-
-    const result = await expoRes.json();
-    if (!expoRes.ok) {
-      await messageRef.update({ pushSent: false });
-      res.status(502).json({ error: 'Expo Push API failed' });
-      return;
-    }
-    
-    const invalidTokensMap: { token: string; userId: string }[] = [];
-    const validTickets: { id: string; token: string; userId: string }[] = [];
-
-    interface ExpoTicket {
-      status: 'ok' | 'error';
-      id?: string;
-      details?: { error?: string };
-    }
-
-    // Check immediate ticket errors (like DeviceNotRegistered)
-    result.data?.forEach((ticket: ExpoTicket, index: number) => {
-      const tMap = tokensMap[index];
-      if (ticket.status === 'error' && (ticket.details?.error === 'DeviceNotRegistered' || ticket.details?.error === 'InvalidCredentials')) {
-        invalidTokensMap.push(tMap);
+    const tickets = await sendExpoPushMessages(notifications);
+    const invalidDeviceReferences: DocumentReference[] = [];
+    const validTickets: PushTicketRecord[] = [];
+    tickets.forEach((ticket, index) => {
+      const device = deviceTokens[index];
+      if (ticket.status === 'error' && ticket.details?.error === 'DeviceNotRegistered') {
+        invalidDeviceReferences.push(adminFirestore.doc(device.devicePath));
       } else if (ticket.status === 'ok' && ticket.id) {
-        validTickets.push({ id: ticket.id, token: tMap.token, userId: tMap.userId });
+        validTickets.push({ ...device, id: ticket.id, createdAt: Date.now() });
       }
     });
 
-    if (invalidTokensMap.length > 0) {
-      for (const tMap of invalidTokensMap) {
-        const devicesSnap = await adminFirestore.collection(`users/${tMap.userId}/devices`).where('token', '==', tMap.token).get();
-        devicesSnap.forEach(doc => {
-          doc.ref.delete();
-        });
-      }
-    }
-
-    // Save valid tickets for receipt processing
-    if (validTickets.length > 0) {
+    await deleteDocumentReferences(invalidDeviceReferences);
+    for (let offset = 0; offset < validTickets.length; offset += 400) {
       const batch = adminFirestore.batch();
-      for (const t of validTickets) {
-        const ref = adminFirestore.collection('pushTickets').doc(t.id);
-        batch.set(ref, { token: t.token, userId: t.userId, createdAt: Date.now() });
-      }
+      validTickets.slice(offset, offset + 400).forEach((ticket) => {
+        batch.set(adminFirestore.collection('pushTickets').doc(ticket.id), {
+          token: ticket.token,
+          userId: ticket.userId,
+          devicePath: ticket.devicePath,
+          conversationId,
+          messageId,
+          createdAt: ticket.createdAt,
+        });
+      });
       await batch.commit();
     }
 
-    await messageRef.update({ pushSent: true });
-    res.status(200).json({ success: true, result });
-  } catch (error) {
-    console.error('Error sending push', error);
-    // If a hard error happens before marking sent, we should revert pushSent so it can be retried.
-    if (req.body.messageId && req.body.conversationId) {
+    await setPushState(messagePath, 'sent');
+    res.status(200).json({ success: true, notifiedDevices: deviceTokens.length });
+  } catch (error: unknown) {
+    console.error('Falha ao processar push:', error);
+    if (claimAcquired) {
       try {
-         await adminDatabase.ref(`messages/${req.body.conversationId}/${req.body.messageId}`).update({ pushSent: false });
-      } catch {}
+        await setPushState(messagePath, 'failed');
+      } catch (stateError) {
+        console.error('Falha ao registrar estado do push:', stateError);
+      }
     }
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Não foi possível processar a notificação.' });
   }
 });
 
 router.post('/receipts', async (req: Request, res: Response) => {
-  const secret = req.headers['x-cron-secret'];
-  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
-    res.status(401).json({ error: 'Unauthorized CRON request' });
+  if (!isAuthorizedCronRequest(req)) {
+    res.status(401).json({ error: 'Não autorizado.' });
     return;
   }
-  
-  try {
-    const snap = await adminFirestore.collection('pushTickets').orderBy('createdAt', 'asc').limit(100).get();
-    if (snap.empty) {
-      res.status(200).json({ success: true, reason: 'No tickets to process' });
-      return;
-    }
-    
-    const tickets = snap.docs.map(d => ({ id: d.id, ...(d.data() as { token: string, userId: string }) }));
-    const ids = tickets.map(t => t.id);
 
-    const expoRes = await fetch('https://exp.host/--/api/v2/push/getReceipts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ ids }),
+  try {
+    const snapshot = await adminFirestore
+      .collection('pushTickets')
+      .orderBy('createdAt', 'asc')
+      .limit(100)
+      .get();
+    const tickets: PushTicketRecord[] = snapshot.docs.flatMap((document) => {
+      const data: unknown = document.data();
+      if (
+        !isJsonObject(data)
+        || typeof data.token !== 'string'
+        || !isNonEmptyString(data.userId, 128)
+        || typeof data.createdAt !== 'number'
+      ) {
+        return [];
+      }
+      return [{
+        id: document.id,
+        token: data.token,
+        userId: data.userId,
+        devicePath: typeof data.devicePath === 'string' ? data.devicePath : '',
+        createdAt: data.createdAt,
+      }];
     });
 
-    if (!expoRes.ok) {
-      res.status(502).json({ error: 'Expo API error' });
+    if (tickets.length === 0) {
+      res.status(200).json({ success: true, processedCount: 0, removedTokens: 0 });
       return;
     }
 
-    const { data, errors } = await expoRes.json();
-    if (errors) {
-      res.status(502).json({ error: 'Expo returned errors', details: errors });
-      return;
-    }
+    const receipts = await getExpoPushReceipts(tickets.map((ticket) => ticket.id));
+    const processedTicketReferences: DocumentReference[] = [];
+    const invalidDeviceReferences: DocumentReference[] = [];
 
-    const batch = adminFirestore.batch();
-    const invalidTokens: { token: string; userId: string }[] = [];
-
-    interface ExpoReceipt {
-      status: 'ok' | 'error';
-      message?: string;
-      details?: { error?: string };
-    }
-    for (const [id, receiptData] of Object.entries(data)) {
-      const receipt = receiptData as ExpoReceipt;
-      if (receipt.status === 'error' && (receipt.details?.error === 'DeviceNotRegistered' || receipt.details?.error === 'InvalidCredentials')) {
-        const t = tickets.find(x => x.id === id);
-        if (t) invalidTokens.push({ token: t.token, userId: t.userId });
+    for (const ticket of tickets) {
+      const receipt = receipts[ticket.id];
+      if (!receipt) {
+        continue;
       }
-      batch.delete(adminFirestore.collection('pushTickets').doc(id));
+      processedTicketReferences.push(adminFirestore.collection('pushTickets').doc(ticket.id));
+      if (receipt.status === 'error' && receipt.details?.error === 'DeviceNotRegistered') {
+        if (ticket.devicePath) {
+          invalidDeviceReferences.push(adminFirestore.doc(ticket.devicePath));
+        } else {
+          const devices = await adminFirestore
+            .collection(`users/${ticket.userId}/devices`)
+            .where('token', '==', ticket.token)
+            .get();
+          invalidDeviceReferences.push(...devices.docs.map((document) => document.ref));
+        }
+      }
     }
 
-    // Delete invalid tokens
-    for (const tMap of invalidTokens) {
-      const devicesSnap = await adminFirestore.collection(`users/${tMap.userId}/devices`).where('token', '==', tMap.token).get();
-      devicesSnap.forEach(doc => batch.delete(doc.ref));
-    }
-
-    await batch.commit();
-    res.status(200).json({ success: true, processedCount: ids.length, deletedCount: invalidTokens.length });
-  } catch (error) {
-    console.error('Receipt processing error', error);
-    res.status(500).json({ error: 'Internal server error' });
+    await deleteDocumentReferences([...processedTicketReferences, ...invalidDeviceReferences]);
+    res.status(200).json({
+      success: true,
+      processedCount: processedTicketReferences.length,
+      removedTokens: invalidDeviceReferences.length,
+    });
+  } catch (error: unknown) {
+    console.error('Falha ao processar recibos de push:', error);
+    res.status(500).json({ error: 'Não foi possível processar os recibos.' });
   }
 });
 

@@ -1,28 +1,63 @@
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import app from './firebase';
+import { createClient } from '@supabase/supabase-js';
 
-export const storage = getStorage(app);
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabasePublishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const imageBucket = 'cp5-images';
+
+const supabase = supabaseUrl && supabasePublishableKey
+  ? createClient(supabaseUrl, supabasePublishableKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    })
+  : null;
+
+const extensionByContentType: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+function buildObjectPath(path: string, contentType: string) {
+  const safePath = path.replace(/[^a-zA-Z0-9/_-]/g, '');
+  const extension = extensionByContentType[contentType] ?? 'jpg';
+  const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+  return `${safePath}-${uniqueSuffix}.${extension}`;
+}
 
 export const uploadImageAsync = async (uri: string, path: string): Promise<string> => {
-  const blob: Blob = await new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.onload = function () {
-      resolve(xhr.response);
-    };
-    xhr.onerror = function (e) {
-      console.log(e);
-      reject(new TypeError('Network request failed'));
-    };
-    xhr.responseType = 'blob';
-    xhr.open('GET', uri, true);
-    xhr.send(null);
-  });
+  if (!supabase) {
+    throw new Error('Configure EXPO_PUBLIC_SUPABASE_URL e EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY para enviar imagens.');
+  }
 
-  const fileRef = ref(storage, path);
-  await uploadBytes(fileRef, blob);
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  const contentType = blob.type.toLowerCase() || 'image/jpeg';
 
-  // We're done with the blob, close and release it
-  (blob as unknown as { close: () => void }).close();
+  if (!contentType.startsWith('image/')) {
+    throw new Error('Selecione um arquivo de imagem válido.');
+  }
 
-  return await getDownloadURL(fileRef);
+  const objectPath = buildObjectPath(path, contentType);
+  const { error } = await supabase.storage.from(imageBucket).upload(
+    objectPath,
+    await blob.arrayBuffer(),
+    {
+      cacheControl: '31536000',
+      contentType,
+      upsert: false,
+    },
+  );
+
+  if (error) {
+    console.error('Supabase Storage upload error:', error);
+    throw new Error('Não foi possível enviar a imagem. Tente novamente.');
+  }
+
+  const { data } = supabase.storage.from(imageBucket).getPublicUrl(objectPath);
+  return data.publicUrl;
 };

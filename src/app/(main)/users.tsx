@@ -10,6 +10,8 @@ import { Avatar } from '../../components/Avatar';
 import { generateDirectConversationId, syncChatMembers } from '../../services/chatService';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { firestore } from '../../services/firebase';
+import { theme } from '../../theme';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function UsersScreen() {
   const { user } = useAuth();
@@ -70,20 +72,34 @@ export default function UsersScreen() {
 
   return (
     <View style={styles.container}>
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Buscar usuários..."
-        value={search}
-        onChangeText={setSearch}
-      />
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Buscar contatos..."
+          placeholderTextColor={theme.colors.textSecondary}
+          value={search}
+          onChangeText={setSearch}
+        />
+      </View>
       <FlatList
         data={filteredUsers}
         keyExtractor={item => item.uid}
-        ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20, color: '#999' }}>Nenhum usuário disponível.</Text>}
+        contentContainerStyle={styles.listContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="people-outline" size={48} color={theme.colors.border} />
+            <Text style={styles.emptyText}>Nenhum usuário encontrado.</Text>
+          </View>
+        }
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.item} onPress={() => startChat(item)}>
+          <TouchableOpacity style={styles.item} onPress={() => startChat(item)} activeOpacity={0.7}>
             <Avatar uri={item.photoUrl} style={styles.avatar} />
-            <Text style={styles.name}>{item.name}</Text>
+            <View style={styles.itemContent}>
+              <Text style={styles.name}>{item.name}</Text>
+              {item.phoneNumber && <Text style={styles.phone}>{item.phoneNumber}</Text>}
+            </View>
+            <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.colors.primaryLight} />
           </TouchableOpacity>
         )}
       />
@@ -92,9 +108,65 @@ export default function UsersScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  searchInput: { margin: 15, padding: 10, borderWidth: 1, borderColor: '#ccc', borderRadius: 8 },
-  item: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderColor: '#eee', alignItems: 'center' },
-  avatar: { width: 50, height: 50, borderRadius: 25, marginRight: 15 },
-  name: { fontSize: 16 }
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.inputBackground,
+    margin: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.borderRadius.xl,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  searchIcon: {
+    marginRight: theme.spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: theme.spacing.md,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  listContainer: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.xl,
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.card,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+    borderRadius: theme.borderRadius.lg,
+    ...theme.shadows.sm,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginRight: theme.spacing.md,
+  },
+  itemContent: {
+    flex: 1,
+  },
+  name: {
+    ...theme.typography.body,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  phone: {
+    ...theme.typography.caption,
+  },
+  emptyState: {
+    alignItems: 'center',
+    marginTop: theme.spacing.xxl,
+  },
+  emptyText: {
+    ...theme.typography.subtitle,
+    marginTop: theme.spacing.md,
+  },
 });
