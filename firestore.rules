@@ -16,31 +16,7 @@ service cloud.firestore {
     }
 
     match /groups/{groupId} {
-      allow create: if isAuthenticated() && 
-        request.resource.data.ownerId == request.auth.uid && 
-        request.resource.data.memberIds.size() >= 2 && 
-        request.auth.uid in request.resource.data.memberIds &&
-        request.resource.data.memberLimit is int &&
-        request.resource.data.memberLimit >= 2 &&
-        request.resource.data.memberIds.size() <= request.resource.data.memberLimit &&
-        request.resource.data.notificationPolicy in ['all_group_messages', 'mentioned_members', 'direct_messages_only', 'disabled'];
-        
       allow read: if isAuthenticated() && request.auth.uid in resource.data.memberIds;
-      allow update: if isAuthenticated() && (
-        (request.auth.uid == resource.data.ownerId && request.resource.data.memberIds.size() <= request.resource.data.memberLimit && request.resource.data.memberIds.size() >= 2) ||
-        (
-          request.auth.uid in resource.data.memberIds && 
-          request.resource.data.memberIds.size() == resource.data.memberIds.size() - 1 &&
-          request.resource.data.memberIds.size() >= 2 &&
-          !(request.auth.uid in request.resource.data.memberIds) &&
-          request.resource.data.name == resource.data.name &&
-          request.resource.data.ownerId == resource.data.ownerId &&
-          request.resource.data.photoUrl == resource.data.photoUrl &&
-          request.resource.data.memberLimit == resource.data.memberLimit &&
-          request.resource.data.notificationPolicy == resource.data.notificationPolicy
-        )
-      );
-      allow delete: if isAuthenticated() && request.auth.uid == resource.data.ownerId;
     }
 
     match /directConversations/{conversationId} {

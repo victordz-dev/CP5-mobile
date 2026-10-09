@@ -33,5 +33,5 @@ export const getAllUsers = async (): Promise<ChatUser[]> => {
     headers: { Authorization: `Bearer ${token}` }
   });
   if (res.ok) return await res.json();
-  return [];
+  throw new Error('Falha ao carregar usuários. Verifique sua conexão.');
 };

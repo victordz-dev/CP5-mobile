@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: cp5-api
+    name: cp5-mobile
     env: node
     rootDir: server
     buildCommand: npm install && npx tsc

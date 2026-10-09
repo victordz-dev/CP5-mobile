@@ -9,9 +9,9 @@
     "messages": {
       "$conversationId": {
         ".read": "root.child('chat_members').child($conversationId).child(auth.uid).val() === true",
-        ".write": "root.child('chat_members').child($conversationId).child(auth.uid).val() === true",
         "$messageId": {
-          ".validate": "newData.hasChildren(['conversationType', 'senderId', 'text', 'target', 'createdAt']) && newData.child('senderId').val() === auth.uid && newData.child('text').isString() && newData.child('text').val().length > 0"
+          ".write": "root.child('chat_members').child($conversationId).child(auth.uid).val() === true && !data.exists()",
+          ".validate": "newData.hasChildren(['conversationId', 'conversationType', 'senderId', 'text', 'target', 'createdAt']) && newData.child('senderId').val() === auth.uid && newData.child('conversationId').val() === $conversationId && newData.child('text').isString() && newData.child('text').val().length > 0 && (!newData.child('target/memberId').exists() || root.child('chat_members').child($conversationId).child(newData.child('target/memberId').val()).val() === true) && !newData.child('pushSent').exists()"
         }
       }
     }

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, Button, FlatList, StyleSheet, Image, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, Button, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { listenToMessages, sendMessage } from '../../services/chatService';
@@ -8,6 +8,7 @@ import { getUserProfile } from '../../services/userService';
 import { getDoc, doc } from 'firebase/firestore';
 import { firestore, auth } from '../../services/firebase';
 import Constants from 'expo-constants';
+import { Avatar } from '../../components/Avatar';
 
 export default function ChatScreen() {
   const { user } = useAuth();
@@ -114,7 +115,7 @@ export default function ChatScreen() {
         conversationType: type,
         senderId: user.uid,
         text: text.trim(),
-        target: { type: 'conversation' },
+        target: mentions.length > 0 ? { type: 'user', memberId: mentions[0] } : { type: 'conversation' },
         mentionedUserIds: mentions
       });
       setText('');
@@ -122,7 +123,7 @@ export default function ChatScreen() {
     } catch (err) {
       const e = err as Error;
       console.error(e);
-      alert('Falha ao enviar mensagem');
+      alert('Aviso: A mensagem foi gravada, mas o envio da notificação push falhou (' + e.message + ')');
     } finally {
       setSending(false);
     }
@@ -147,7 +148,7 @@ export default function ChatScreen() {
           title: name || 'Chat',
           headerRight: () => (
             <TouchableOpacity onPress={goToProfileOrGroup}>
-              <Image source={{ uri: photoUrl || 'https://via.placeholder.com/40' }} style={styles.headerAvatar} />
+              <Avatar uri={photoUrl} style={styles.headerAvatar} />
             </TouchableOpacity>
           )
         }} 

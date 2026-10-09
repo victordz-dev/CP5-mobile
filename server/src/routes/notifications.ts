@@ -127,7 +127,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       body: bodyText,
       data: { 
         conversationId, 
-        type: messageData.conversationType,
+        conversationType: messageData.conversationType,
         name: messageData.conversationType === 'group' ? (groupData?.name || 'Grupo') : 'Usuário' 
       },
     }));

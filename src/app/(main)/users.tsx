@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, TextInput } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { getAllUsers } from '../../services/userService';
 import { ChatUser } from '../../types/user';
 import { Loading } from '../../components/Loading';
+import { ErrorMessage } from '../../components/ErrorMessage';
+import { Avatar } from '../../components/Avatar';
 import { generateDirectConversationId, syncChatMembers } from '../../services/chatService';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { firestore } from '../../services/firebase';
@@ -16,12 +18,19 @@ export default function UsersScreen() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
+  const [error, setError] = useState('');
+
   useEffect(() => {
     const loadUsers = async () => {
-      const allUsers = await getAllUsers();
-      // Exclude current user
-      setUsers(allUsers.filter(u => u.uid !== user?.uid));
-      setLoading(false);
+      try {
+        const allUsers = await getAllUsers();
+        // Exclude current user
+        setUsers(allUsers.filter(u => u.uid !== user?.uid));
+      } catch {
+        setError('Erro ao carregar usuários. Verifique sua conexão.');
+      } finally {
+        setLoading(false);
+      }
     };
     loadUsers();
   }, [user]);
@@ -48,6 +57,7 @@ export default function UsersScreen() {
   const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
 
   if (loading) return <Loading />;
+  if (error) return <View style={styles.container}><ErrorMessage message={error} /></View>;
 
   return (
     <View style={styles.container}>
@@ -60,9 +70,10 @@ export default function UsersScreen() {
       <FlatList
         data={filteredUsers}
         keyExtractor={item => item.uid}
+        ListEmptyComponent={<Text style={{ textAlign: 'center', marginTop: 20, color: '#999' }}>Nenhum usuário disponível.</Text>}
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.item} onPress={() => startChat(item)}>
-            <Image source={{ uri: item.photoUrl || 'https://via.placeholder.com/50' }} style={styles.avatar} />
+            <Avatar uri={item.photoUrl} style={styles.avatar} />
             <Text style={styles.name}>{item.name}</Text>
           </TouchableOpacity>
         )}

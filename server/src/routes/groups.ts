@@ -41,6 +41,12 @@ router.post('/', authenticate, async (req: AuthenticatedRequest, res: Response) 
       return;
     }
 
+    const usersSnap = await adminFirestore.collection('users').where(FieldValue.documentId(), 'in', memberIds).get();
+    if (usersSnap.size !== memberIds.length) {
+      res.status(400).json({ error: 'Um ou mais usuários informados não existem no sistema.' });
+      return;
+    }
+
     const groupRef = adminFirestore.collection('groups').doc();
     const newGroup = {
       name,
@@ -78,6 +84,12 @@ router.post('/:id/join', authenticate, async (req: AuthenticatedRequest, res: Re
     const user = req.user;
     if (!user) {
       res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    const userSnap = await adminFirestore.collection('users').doc(userId).get();
+    if (!userSnap.exists) {
+      res.status(400).json({ error: 'O usuário informado não existe no sistema.' });
       return;
     }
 

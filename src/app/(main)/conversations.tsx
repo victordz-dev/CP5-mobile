@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Image, Button } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Button } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -7,6 +7,7 @@ import { firestore } from '../../services/firebase';
 import { ChatGroup } from '../../types/group';
 import { getUserProfile } from '../../services/userService';
 import { Loading } from '../../components/Loading';
+import { Avatar } from '../../components/Avatar';
 
 type ConversationItem = {
   id: string;
@@ -96,8 +97,8 @@ export default function ConversationsScreen() {
               style={styles.item}
               onPress={() => router.push(`/(main)/chat?id=${item.id}&type=${item.type}&name=${encodeURIComponent(item.name)}&photoUrl=${encodeURIComponent(item.photoUrl || '')}&otherUserId=${item.otherUserId || ''}`)}
             >
-              <Image 
-                source={{ uri: item.photoUrl || 'https://via.placeholder.com/50' }} 
+              <Avatar 
+                uri={item.photoUrl} 
                 style={styles.avatar} 
               />
               <View>

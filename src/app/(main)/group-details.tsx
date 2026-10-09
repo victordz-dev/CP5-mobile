@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Button, ScrollView, TextInput, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Button, ScrollView, TextInput, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getDoc, doc } from 'firebase/firestore';
 import { firestore } from '../../services/firebase';
@@ -12,6 +12,7 @@ import { ErrorMessage } from '../../components/ErrorMessage';
 import { Loading } from '../../components/Loading';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageAsync } from '../../services/storageService';
+import { Avatar } from '../../components/Avatar';
 
 export default function GroupDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -145,7 +146,7 @@ export default function GroupDetailsScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       {!editing ? (
         <>
-          {group.photoUrl ? <Image source={{uri: group.photoUrl}} style={styles.image} /> : <View style={styles.image} />}
+          {group.photoUrl ? <Avatar uri={group.photoUrl} style={styles.image} /> : <View style={styles.image} />}
           <Text style={styles.title}>{group.name}</Text>
           <Text>Membros: {group.memberIds.length} / {group.memberLimit}</Text>
           <Text>Vagas: {vagas}</Text>
@@ -190,7 +191,7 @@ export default function GroupDetailsScreen() {
       ) : (
         <>
           <Button title="Escolher Nova Foto" onPress={pickImage} />
-          {photoUri && <Image source={{uri: photoUri}} style={styles.image} />}
+          {photoUri && <Avatar uri={photoUri} style={styles.image} />}
           <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Nome" />
           <TextInput style={styles.input} value={editLimit} onChangeText={setEditLimit} placeholder="Limite (ex: 10)" keyboardType="numeric" />
           

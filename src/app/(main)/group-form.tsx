@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, TextInput, Button, StyleSheet, Text, ScrollView, Image, TouchableOpacity } from 'react-native';
+import { View, TextInput, Button, StyleSheet, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../hooks/useAuth';
 import { createGroup } from '../../services/groupService';
@@ -9,6 +9,7 @@ import { ChatUser } from '../../types/user';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import * as ImagePicker from 'expo-image-picker';
 import { NotificationPolicy } from '../../types/group';
+import { Avatar } from '../../components/Avatar';
 
 export default function GroupFormScreen() {
   const { user } = useAuth();
@@ -24,7 +25,7 @@ export default function GroupFormScreen() {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    getAllUsers().then(u => setUsers(u.filter(ui => ui.uid !== user?.uid)));
+    getAllUsers().then(u => setUsers(u.filter(ui => ui.uid !== user?.uid))).catch(() => setError('Falha de rede ao buscar usuários.'));
   }, [user]);
 
   const toggleUser = (id: string) => {
@@ -55,6 +56,10 @@ export default function GroupFormScreen() {
   const handleCreate = async () => {
     if (!name || !memberLimit || !user) {
       setError('Preencha os campos obrigatórios.');
+      return;
+    }
+    if (!photoUri) {
+      setError('A foto do grupo é obrigatória.');
       return;
     }
     if (!/^\d+$/.test(memberLimit)) {
@@ -107,7 +112,7 @@ export default function GroupFormScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Button title="Escolher Foto do Grupo" onPress={pickImage} />
-      {photoUri && <Image source={{ uri: photoUri }} style={styles.image} />}
+      {photoUri && <Avatar uri={photoUri} style={styles.image} />}
 
       <TextInput
         style={styles.input}

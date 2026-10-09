@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { getUserProfile } from '../../services/userService';
 import { ChatUser } from '../../types/user';
 import { Loading } from '../../components/Loading';
+import { Avatar } from '../../components/Avatar';
 
 export default function ProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
@@ -15,9 +16,14 @@ export default function ProfileScreen() {
       return;
     }
     const loadProfile = async () => {
-      const p = await getUserProfile(userId);
-      setProfile(p);
-      setLoading(false);
+      try {
+        const p = await getUserProfile(userId);
+        setProfile(p);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
     };
     loadProfile();
   }, [userId]);
@@ -34,7 +40,7 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
-      <Image source={{ uri: profile.photoUrl || 'https://via.placeholder.com/150' }} style={styles.avatar} />
+      <Avatar uri={profile.photoUrl} style={styles.avatar} />
       <Text style={styles.name}>{profile.name}</Text>
       <Text style={styles.info}>E-mail: {profile.email}</Text>
       <Text style={styles.info}>Celular: {profile.phoneNumber || 'Não informado'}</Text>

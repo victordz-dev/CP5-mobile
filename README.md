@@ -87,10 +87,23 @@ Apenas membros reais do chat podem ler ou escrever mensagens. Para mitigar o pro
 - O lado do cliente implementa o fluxo formal de requisição e tratativa de permissão negativa usando `expo-image-picker`.
 
 **Notificações Push (Firebase Cloud Messaging - FCM) e Expo:**
-- O projeto usa `expo-notifications` para se comunicar de forma transparente com a APNs (Apple) e FCM (Google Android).
-- A configuração dos pacotes nativos para envio das Push Notifications requer que as credenciais do Firebase FCM sejam fornecidas à Expo via configuração no painel do Expo.dev ou através de variáveis de ambiente no processo do EAS Build (`EAS Secrets`). Diferente do fluxo "bare", em "managed" (Expo Go ou Development Builds), o envio físico usa as chaves associadas ao **Expo Project ID** (`app.json` atrelado).
-- A geração das notificações é roteada pelo servidor que processa o token único FCM/Expo salvo por dispositivo em `users/{userId}/devices/{deviceId}`.
-- O backend verifica a flag `pushSent`. Para garantir a concorrência, é usada uma transação atômica do RTDB na flag: a operação a tranca no status `pending`, dispara a solicitação ao `exp.host` e caso falhe na validação/integração com a Expo, dá um **rollback imediato e limpo** para permitir uma tentativa subsequente.
+- O projeto usa `expo-notifications` para se comunicar com APNs (Apple) e FCM (Google Android).
+- A API calcula dinamicamente os destinatários de cada notificação usando a flag `pushSent` do RTDB (através de transação atômica que marca como `pending` para evitar concorrência) e lida com retries de falha.
+
+**Política de Notificações (Notification Policy):**
+Cada grupo suporta as seguintes políticas de notificação, processadas inteiramente pelo servidor Node.js de acordo com as regras:
+- `all_group_messages`: Todos os membros (exceto o remetente) recebem a notificação.
+- `mentioned_members`: Somente membros marcados na mensagem (`@membro`) recebem a notificação push.
+- `direct_messages_only`: O grupo fica silenciado, apenas conversas diretas continuam gerando notificações para o usuário.
+- `disabled`: Nenhuma mensagem deste grupo irá acionar uma notificação push para nenhum membro.
+
+**Configuração Operacional FCM / EAS (Android & iOS):**
+Para compilação nativa com Push Notifications funcionando fora do Expo Go, o projeto utiliza Continuous Native Generation (CNG) através do **EAS Build**:
+1. O repositório já contém arquivos-base (`google-services.json` e `GoogleService-Info.plist`). Para testes reais, faça o download das chaves oficias no Console do Firebase e os substitua.
+2. O `app.json` já está configurado apontando para esses arquivos nativos.
+3. Para Android, configure a Cloud Messaging Server Key (Legacy ou API V1) no painel do Expo utilizando `eas credentials`.
+4. Para iOS, configure a APNs Key (.p8) no portal do Apple Developer e envie para o Expo via `eas credentials`.
+5. Execute `eas build --profile development --platform android` para obter um APK / AAB funcional que possua os módulos nativos requeridos pelo push.
 
 ---
 

@@ -31,9 +31,11 @@ export const sendMessage = async (message: Omit<ChatMessage, 'id' | 'createdAt'>
     });
     if (!response.ok) {
       console.warn('Failed to trigger notification API', await response.text());
+      throw new Error('Servidor retornou erro ao acionar o Push');
     }
   } catch (error) {
     console.error('Error calling notification API', error);
+    throw new Error('Falha de rede ao acionar a API de notificações');
   }
 
   return newMessage.id;
@@ -49,6 +51,8 @@ export const listenToMessages = (conversationId: string, callback: (messages: Ch
       messages.push(child.val() as ChatMessage);
     });
     callback(messages);
+  }, (error) => {
+    console.error("Erro na sincronização de mensagens do RTDB:", error);
   });
 
   return unsubscribe;
