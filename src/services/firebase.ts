@@ -23,7 +23,7 @@ if (getApps().length === 0) {
   app = getApps()[0];
 }
 
-export const auth = isNewApp && Platform.OS !== 'web'
+export const auth = isNewApp && Platform.OS !== 'web' && typeof getReactNativePersistence === 'function'
   ? initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage),
     })
