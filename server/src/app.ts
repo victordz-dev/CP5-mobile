@@ -1,11 +1,10 @@
 import cors from 'cors';
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import express, { ErrorRequestHandler } from 'express';
 import groupsRouter from './routes/groups';
 import notificationsRouter from './routes/notifications';
 import syncRouter from './routes/sync';
-
-dotenv.config();
+import { requireEnvironmentVariable } from './config/environment';
 
 const app = express();
 
@@ -45,7 +44,10 @@ const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
 app.use(errorHandler);
 
 if (require.main === module) {
-  const port = Number(process.env.PORT ?? 3000);
+  const port = Number(requireEnvironmentVariable('PORT'));
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('PORT deve ser um número inteiro entre 1 e 65535.');
+  }
   app.listen(port, () => {
     console.log(`Servidor disponível na porta ${port}.`);
   });

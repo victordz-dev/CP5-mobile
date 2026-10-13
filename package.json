@@ -5,16 +5,20 @@
   "dependencies": {
     "@expo/metro-runtime": "^57.0.16",
     "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.117.3",
-    "expo": "~57.0.27",
+    "expo": "~57.0.28",
     "expo-blur": "~57.0.3",
     "expo-constants": "~57.0.21",
+    "expo-dev-client": "~57.0.20",
     "expo-device": "~57.0.2",
+    "expo-font": "~57.0.4",
     "expo-image-picker": "~57.0.20",
     "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~57.0.12",
     "expo-notifications": "~57.0.22",
-    "expo-router": "~57.0.25",
+    "expo-router": "~57.0.26",
+    "expo-splash-screen": "~57.0.10",
     "expo-status-bar": "~57.0.1",
     "firebase": "^13.0.0",
     "react": "19.2.3",
@@ -25,6 +29,7 @@
     "react-native-web": "^0.21.4"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@types/react": "~19.2.2",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~57.0.2",
@@ -35,7 +40,11 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck",
+    "test:api": "node --env-file=.env -e \"const base=process.env.EXPO_PUBLIC_API_URL;if(!base)throw new Error('EXPO_PUBLIC_API_URL não configurada');const url=base.endsWith('/')?base+'health':base+'/health';fetch(url).then(async(r)=>{if(!r.ok)throw new Error('HTTP '+r.status);console.log(await r.text())}).catch((e)=>{console.error(e.message);process.exit(1)})\"",
+    "test:firebase-rules": "npx -y firebase-tools@14.22.0 emulators:exec --project demo-cp5-rules --only firestore,database \"node firebase.rules.test.mjs\""
   },
   "private": true
 }

@@ -10,10 +10,11 @@ import { Avatar } from '../../components/Avatar';
 import { theme } from '../../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
-import { formatPhone, formatDate } from '../../utils/formatters';
+import { formatPhone, formatDate, isValidBirthDate, isValidPhone } from '../../utils/formatters';
+import { ProfileRouteParams } from '../../types/navigation';
 
 export default function ProfileScreen() {
-  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const { userId } = useLocalSearchParams<ProfileRouteParams>();
   const { user } = useAuth();
   const targetUserId = userId || user?.uid;
   const [profile, setProfile] = useState<ChatUser | null>(null);
@@ -71,6 +72,14 @@ export default function ProfileScreen() {
     if (!user || !profile) return;
     if (!editName.trim()) {
       Alert.alert('Erro', 'O nome não pode ser vazio.');
+      return;
+    }
+    if (!isValidPhone(editPhone)) {
+      Alert.alert('Erro', 'Informe um celular válido com DDD.');
+      return;
+    }
+    if (!isValidBirthDate(editBirthDate)) {
+      Alert.alert('Erro', 'Informe uma data válida no formato DD/MM/AAAA.');
       return;
     }
     try {
@@ -182,7 +191,7 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.infoTextContainer}>
             <Text style={styles.infoLabel}>E-mail</Text>
-            <Text style={styles.infoValue}>{profile.email}</Text>
+            <Text style={styles.infoValue}>{profile.email || 'Não informado'}</Text>
           </View>
         </View>
 
@@ -360,7 +369,7 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: theme.colors.border,
     marginVertical: theme.spacing.sm,
-    marginLeft: 56, // Align with text
+    marginLeft: 56,
   },
   errorContainer: { 
     flex: 1, 

@@ -1,10 +1,21 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { theme } from '../theme';
 
-export const ErrorMessage = ({ message }: { message: string }) => {
+type ErrorMessageProps = {
+  message: string;
+  onRetry?: () => void;
+};
+
+export const ErrorMessage = ({ message, onRetry }: ErrorMessageProps) => {
   if (!message) return null;
   return (
     <View style={styles.container}>
       <Text style={styles.text}>{message}</Text>
+      {onRetry && (
+        <TouchableOpacity onPress={onRetry} accessibilityRole="button">
+          <Text style={styles.retry}>Tentar novamente</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -12,12 +23,18 @@ export const ErrorMessage = ({ message }: { message: string }) => {
 const styles = StyleSheet.create({
   container: {
     padding: 10,
-    backgroundColor: '#ffcccc',
-    borderRadius: 5,
-    marginVertical: 10,
+    backgroundColor: '#FEE2E2',
+    borderRadius: theme.borderRadius.md,
+    marginVertical: theme.spacing.sm,
   },
   text: {
-    color: '#cc0000',
+    color: '#991B1B',
     textAlign: 'center',
+  },
+  retry: {
+    color: theme.colors.primaryDark,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: theme.spacing.sm,
   },
 });

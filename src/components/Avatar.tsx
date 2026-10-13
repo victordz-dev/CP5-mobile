@@ -7,12 +7,12 @@ interface AvatarProps {
 }
 
 export const Avatar = ({ uri, style }: AvatarProps) => {
-  const [error, setError] = useState(false);
+  const [failedUri, setFailedUri] = useState<string | null>(null);
   
-  if (!uri || error) {
+  if (!uri || failedUri === uri) {
     return (
       <Image 
-        source={require('../../assets/icon.png')} 
+        source={require('../../assets/app-icon-v2.png')}
         style={style} 
       />
     );
@@ -22,7 +22,7 @@ export const Avatar = ({ uri, style }: AvatarProps) => {
     <Image 
       source={{ uri }} 
       style={style} 
-      onError={() => setError(true)} 
+      onError={() => setFailedUri(uri)}
     />
   );
 };

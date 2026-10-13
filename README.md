@@ -1,179 +1,189 @@
-# CP5 - Chat Mobile com Push Notifications
+# CP5 — Chat Mobile com Firebase e Push Notifications
 
-**Integrantes (Grupo):**
-- Guilherme Oliveira - 558797
-- Matheus Dantas - 558804
-- Rafael Panhoca - 555014
-- Silas Alves - 555020
-- Victor Rodriguez - 559094
+Aplicativo de chat individual e em grupo para Android e iOS. O projeto usa Expo SDK 57, React Native 0.86, TypeScript, Firebase e uma API Express publicada para enviar notificações sem expor credenciais administrativas no app.
 
----
+Repositório: `https://github.com/victordz-dev/CP5-mobile`
 
-## 📱 Sobre o Projeto
+## Integrantes
 
-Este aplicativo é um chat multiplataforma desenhado para suportar Android e iOS, construído utilizando **Expo SDK 57**, **React Native**, **Firebase** e backend em **Node.js (Express)** hospedado no Render.
+- Guilherme Oliveira — RM 558797
+- Matheus Dantas — RM 558804
+- Rafael Panhoca — RM 555014
+- Silas Alves — RM 555020
+- Victor Rodriguez — RM 559094
 
-### Estrutura do Projeto
-- `src/app`: Rotas de interface construídas com `expo-router` (ex: `chat.tsx`, `users.tsx`, `group-form.tsx`).
-- `src/components`: Componentes visuais reutilizáveis (ex: `Loading`, `ErrorMessage`).
-- `src/services`: Camada de comunicação com Firebase e API Rest (`authService`, `chatService`, `notificationService`).
-- `src/types`: Interfaces TypeScript rigorosas para garantir tipagem em toda a aplicação.
-- `server/`: Backend em Express.js responsável por validar regras atômicas, lidar com integrações Push da Expo e sincronizar permissões sensíveis (Firestore -> RTDB) sem expor as chaves Admin.
+## Tecnologias e responsabilidades
 
----
+- **Expo SDK 57 / React Native 0.86 / Expo Router:** aplicativo multiplataforma e navegação baseada em arquivos.
+- **TypeScript:** tipagem estrita de telas, serviços, modelos e navegação.
+- **Firebase Authentication:** cadastro e login exclusivamente por e-mail e senha, restauração da sessão e logout.
+- **Cloud Firestore:** perfis, metadados de conversas e grupos, integrantes, limites, políticas e dispositivos.
+- **Realtime Database:** mensagens e sincronização em tempo real; os listeners são removidos ao trocar de conversa ou sair.
+- **Firebase Cloud Messaging (FCM) e APNs via Expo Push Service:** entrega nativa dos pushes; a API calcula os destinatários e envia ao serviço da Expo.
+- **Supabase Storage:** upload das fotos; somente a URL HTTPS final é persistida no Firebase.
+- **Node.js, Express e Firebase Admin:** API autenticada, sincronização de integrantes, concorrência e envio idempotente de push.
 
-## 🛠 Como Executar o App (Client - Android / iOS)
+## Estrutura
 
-1. Entre na pasta raiz do projeto.
-2. Instale as dependências: `npm install`.
-3. Configure a variável de ambiente criando um `.env` a partir do `.env.example`:
-   ```env
-   EXPO_PUBLIC_API_URL="https://cp5-mobile.onrender.com"
-   ```
-4. Para rodar em desenvolvimento com FCM no Android ou APNs no iOS via build nativa (Development Build):
-   ```bash
-   npx expo run:android
-   # ou
-   npx expo run:ios
-   ```
-   **Nota:** Se utilizar o Expo Go, os Push Notifications estarão atrelados ao projeto do Expo Go.
+```text
+assets/              ícones e identidade visual
+src/app/             rotas Expo Router e telas
+src/components/      componentes reutilizáveis
+src/contexts/        sessão e estado global
+src/hooks/           hooks da aplicação
+src/services/        Firebase, API, notificações e armazenamento
+src/types/           modelos TypeScript
+src/utils/           formatadores e utilitários
+server/src/          API Express e regras de integração
+firestore.rules      regras versionadas do Firestore
+database.rules.json  regras versionadas do Realtime Database
+firebase.json        manifesto de deploy das regras Firebase
+supabase-storage-policy.sql  política mínima de upload das fotos
+app.json             configuração nativa declarativa (CNG)
+eas.json             perfis de development, preview e production
+TESTE_LOCAL_E_BUILD_APK.md  roteiro de validação e geração do APK
+CONFIGURACAO_FIREBASE_FCM_EAS.md  configuração Firebase, FCM, EAS e Render
+```
 
----
+As pastas `android/` e `ios/` são geradas por Continuous Native Generation e não são versionadas. Alterações nativas devem ser feitas em `app.json` ou por config plugins e aplicadas em um novo prebuild/build.
 
-## 🚀 Como Executar a API Localmente
+## Instalação e execução do app
 
-1. Navegue até a pasta `server/`: `cd server`
-2. Instale as dependências: `npm install`
-3. Crie um arquivo `.env` baseado em `server/.env.example`. Configure `FIREBASE_PROJECT_ID`, `FIREBASE_DATABASE_URL`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` e `CRON_SECRET`. `EXPO_ACCESS_TOKEN` só é necessário quando a segurança aprimorada do Expo Push estiver habilitada.
-4. Valide e execute:
-   ```bash
-   npm run typecheck
-   npm test
-   npm run build
-   npm start
-   ```
+Requisitos: Node.js 22.13 ou superior e npm. Este projeto não possui `bun.lock`, portanto os comandos usam `npx`.
 
-A chave privada deve ser armazenada somente como variável secreta no Render, preservando as quebras de linha como `\n`. Nenhum arquivo de conta de serviço deve ser enviado ao repositório.
+```bash
+npm install
+cp .env.example .env
+npx expo start
+```
 
-### Publicação no Render
+O `firebaseConfig.json`, `google-services.json` e `GoogleService-Info.plist` contêm apenas configuração pública obrigatória para avaliação e SDKs nativos e correspondem ao mesmo projeto Firebase. O aplicativo JavaScript lê do `.env` as variáveis `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_FIREBASE_*` e `EXPO_PUBLIC_SUPABASE_*` documentadas no `.env.example`. O app não possui fallback de URL ou bucket no código e rejeita URLs sem HTTPS. Nunca coloque conta de serviço ou chave privada no app.
 
-O `render.yaml` define o serviço web, o health check e o cron de recibos. Para publicar, conecte o repositório como um Blueprint no Render, preencha todas as variáveis marcadas com `sync: false` no painel e aplique o Blueprint. O deploy executa `npm install && npm run build` e inicia `npm start`. O cron consulta os recibos a cada 15 minutos, conforme a janela recomendada pelo Expo Push Service.
+O acesso às rotas principais só é liberado depois que `users/{uid}` contém o perfil completo. Se o app for fechado durante o cadastro, o próximo login oferece a retomada do perfil; listeners de conversa e registro de push não são iniciados durante esse provisionamento.
 
-Use uma conta de serviço dedicada à API. No IAM, conceda somente as permissões necessárias para leitura/escrita de Firestore, leitura/escrita do Realtime Database e consulta de usuários revogados no Authentication; não use papéis genéricos de Owner/Editor. Uma composição mínima típica é `roles/datastore.user`, `roles/firebasedatabase.admin` e `roles/firebaseauth.viewer`, revisada no IAM do projeto conforme os recursos efetivamente utilizados. A API não usa credencial administrativa de FCM, pois envia ao Expo Push Service.
+Validações locais:
 
----
+```bash
+npm run lint
+npm run typecheck
+npm run check
+```
 
-## 🌐 API Publicada (Render)
+## Configuração do Firebase
 
-A API oficial já se encontra publicada no Render (produção) e com HTTPS.
-- **URL Base / Endpoint Público:** `https://cp5-mobile.onrender.com`
-- **Health check:** `GET https://cp5-mobile.onrender.com/health` (a raiz `/` também responde por compatibilidade) retorna `{"status":"ok","service":"CP5 API"}`.
+No Firebase Console do projeto entregue:
 
-Basta colocar a URL pública acima no `.env` do Expo (`EXPO_PUBLIC_API_URL`) para o app usá-la, dispensando a necessidade de iniciar o servidor localmente para testar.
+1. habilite Authentication > Sign-in method > Email/Password;
+2. crie o Cloud Firestore e o Realtime Database;
+3. publique `firestore.rules` e `database.rules.json`;
+4. registre os apps Android `com.victordz.cp5` e iOS `com.victordz.cp5`;
+5. confirme que os arquivos `google-services.json` e `GoogleService-Info.plist` são dos apps registrados;
+6. habilite a API do Firebase Cloud Messaging e configure a credencial FCM V1 no projeto EAS.
 
----
+O projeto e os caminhos das regras estão declarados em `.firebaserc` e `firebase.json`. Depois de autenticar o Firebase CLI, publique somente os produtos usados pelo app:
 
-### 📡 Endpoints da API
+```bash
+npx firebase-tools@latest login
+npx firebase-tools@latest deploy --only firestore:rules,database --project cp05-d6f00
+```
 
-A API centraliza as operações sensíveis, evitando que o cliente (App) atue diretamente em regras complexas do banco de dados:
+`storage.rules` mantém o Firebase Storage fechado porque as imagens usam Supabase; não inclua `storage` no deploy enquanto não existir um bucket Firebase provisionado.
 
-- **`POST /groups`**: Criação do grupo. Valida limites numéricos, políticas estritas de push e garante que o usuário que criou o grupo esteja entre os membros iniciais e seja o `ownerId`.
-- **`POST /groups/:id/join`**: Adição de novos membros. Autorizada apenas para o proprietário, verificando o `memberLimit` dentro de uma transação do Firestore para serializar tentativas simultâneas sobre a última vaga.
-- **`POST /groups/:id/leave`**: Remoção voluntária ou expulsão. O `ownerId` não pode sair do grupo sem transferir a propriedade, e o grupo impede a descida do número de membros para `< 2`.
-- **`PUT /groups/:id`**: Edição. Restrito a nome, limite (nunca menor que os membros atuais) e foto.
+Para testar as regras com os emuladores:
 
-**Sincronização e Notificações:**
-- **`POST /sync-members`**: Re-espelha no Realtime Database somente uma conversa da qual o solicitante participa. A versão de integrantes impede que uma sincronização antiga sobrescreva uma alteração mais nova.
-- **`POST /notifications/messages`**: Recebe exclusivamente `conversationId` e `messageId`, valida o Firebase ID Token, relê a mensagem no Realtime Database, confirma o remetente, consulta participantes/política/tokens no Firestore e calcula os destinatários no servidor. Uma transação em `pushSent` adquire o processamento uma única vez; reenvios não disparam outro push. Os envios são divididos em lotes de até 100 e o texto da mensagem não é exposto na notificação.
-- **`POST /notifications/receipts`**: Processador cron para ler os Push Tickets aguardando recibo e varrer da base devices desabilitados ou revogados (DeviceNotRegistered).
+```bash
+npm run test:firebase-rules
+```
 
-Todas as rotas operacionais, exceto health check e o endpoint protegido pelo segredo do cron, exigem `Authorization: Bearer <Firebase ID Token>`. Erros retornados ao app são mensagens controladas e não incluem tokens, credenciais ou detalhes internos.
+## Fotos no Supabase Storage
 
-## ⚙️ Configuração do Firebase (Out of the box)
+1. Crie um projeto no Supabase e um bucket público; o nome usado deve ser o mesmo de `EXPO_PUBLIC_SUPABASE_BUCKET` e da política SQL.
+2. Limite os MIME types a `image/jpeg`, `image/png` e `image/webp` e o tamanho a 10 MB.
+3. Copie a Project URL, a chave **publishable** e o nome do bucket para as três variáveis `EXPO_PUBLIC_SUPABASE_*` do `.env`.
+4. Nunca use a chave `service_role` no aplicativo.
+5. Execute `supabase-storage-policy.sql` no SQL Editor. A política concede apenas `INSERT` ao papel `anon`, limitado ao bucket, às pastas `profiles`/`groups` e às extensões aceitas; não conceda `UPDATE`, `DELETE` ou `SELECT` ao cliente.
 
-O projeto lê nativamente as chaves do Firebase do arquivo JSON centralizado `firebaseConfig.json`. Diferente das práticas que escondem o identificador público do projeto no `.env`, **este repositório contém o arquivo `firebaseConfig.json` versionado** intencionalmente, para atender ao requisito de facilidade de execução ("clone, instale, rode"). Ele está abastecido apenas com **chaves públicas do cliente** (sem `serviceAccountKey`).
+O papel `anon` é necessário porque o login do produto é feito no Firebase, e uma sessão Firebase não se transforma em uma sessão Supabase. A chave publicável pode ficar no app; a chave `service_role` não pode. O bucket público libera a leitura pela URL, mas uploads continuam sujeitos à política. O app usa caminhos aleatórios e `upsert: false`, então não precisa de políticas de `SELECT` ou `UPDATE`.
 
-Para que o ambiente funcione corretamente, certifique-se de habilitar os seguintes serviços no Firebase Console do seu projeto correspondente às chaves:
-- **Authentication:** Provedor E-mail/Senha obrigatoriamente habilitado.
-- **Firestore Database:** Para armazenar os Perfis e Configurações de Grupos.
-- **Realtime Database (RTDB):** Para persistir o Chat em Tempo Real.
-- **Cloud Messaging (FCM):** Para gerenciar os tokens e disparos de Push Notification.
+Como qualquer chave publicável pode ser extraída do binário, essa política é apropriada somente para avatares públicos e ainda permite que quem possua a chave envie arquivos dentro das restrições do bucket. Monitore a cota; para endurecer uma implantação de produção, mova o upload para uma rota da API autenticada pelo Firebase e mantenha a chave secreta apenas no servidor.
 
-Nenhuma credencial administrativa está exposta. Os segredos administrativos do Firebase-Admin devem viver exclusivamente nas variáveis de ambiente seguras do servidor NodeJS (`server/.env`).
+O app solicita acesso à galeria, trata a recusa, valida tipo/tamanho e grava somente a URL pública HTTPS. Permissões de câmera e microfone são bloqueadas porque o fluxo atual escolhe imagens apenas da galeria.
 
----
+## Development build, Android, iOS e push
 
-## 🔒 Regras de Segurança e Arquitetura
+Notificações remotas não devem ser validadas no Expo Go. O projeto inclui `expo-dev-client`, `expo-notifications`, `expo-constants`, o plugin de notificações, `projectId` EAS e perfis no `eas.json`.
 
-**Firestore:**
-Apenas usuários autenticados têm acesso. A coleção principal de usuários protege informações sensíveis por default. As criações, edições e exclusões de Grupos são estritamente travadas (`ownerId`, limite e tamanho mínimo de grupo ≥ 2).
+O `.env` local não é enviado ao EAS Build. Cadastre `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` e `EXPO_PUBLIC_SUPABASE_BUCKET` nos ambientes `development`, `preview` e `production` do projeto EAS (pela dashboard ou por `npx eas-cli@latest env:set`). Os perfis do `eas.json` já selecionam o ambiente correspondente. Essas variáveis são incorporadas ao aplicativo e devem conter somente valores públicos; nunca use `service_role`. Consulte `TESTE_LOCAL_E_BUILD_APK.md` e `CONFIGURACAO_FIREBASE_FCM_EAS.md` para o procedimento completo.
 
-**Realtime Database (Sincronização Versionada e Compensação):**
-Apenas membros reais do chat podem ler ou escrever mensagens. O Firestore é a fonte de verdade dos participantes. Cada alteração feita pela API incrementa `membershipVersion` dentro da mesma transação que valida proprietário, quantidade atual e `memberLimit`. O espelho `chat_members` do Realtime Database também guarda `_version`; uma transação no RTDB ignora estados antigos, impedindo que respostas concorrentes restaurem uma lista ultrapassada.
-**Proteção contra falha:** a API só responde sucesso depois de atualizar o espelho. Se a sincronização falhar, uma transação compensatória restaura o estado anterior quando nenhuma operação posterior ocorreu e tenta sincronizá-lo novamente. Em remoções, isso evita declarar o usuário removido enquanto o acesso no RTDB ainda não foi revogado.
+```bash
+# autenticar e conferir credenciais
+npx eas-cli@latest login
+npx eas-cli@latest credentials
 
-**Armazenamento de Fotos (Supabase Storage):**
-- O aplicativo envia fotos de perfil e grupo para o bucket público `cp5-images` do Supabase e salva apenas a URL HTTPS retornada no Firebase. Nenhum Base64 é gravado no Firestore ou no Realtime Database.
-- O lado do cliente implementa o fluxo formal de requisição e tratativa de permissão negativa usando `expo-image-picker`.
+# builds internos para aparelhos físicos
+npx eas-cli@latest build --profile development --platform android
+npx eas-cli@latest build --profile development --platform ios
+```
 
-## 🖼️ Fotos no Supabase Storage (sem Firebase Storage)
+No Android, envie uma conta de serviço FCM V1 ao EAS e instale o development build em um aparelho físico. No iOS, registre um aparelho físico, use uma conta Apple Developer paga e configure a chave APNs solicitada pelo EAS. Depois de instalar o binário, execute `npx expo start`.
 
-O Firebase Storage exige uma conta de faturamento no plano Blaze. Para não depender dele, as imagens deste projeto usam o Supabase Storage; Firebase continua responsável por Authentication, Firestore, RTDB e notificações.
+É obrigatório reconstruir o app depois de alterar `app.json`, instalar/atualizar um módulo nativo ou atualizar o SDK. Push em segundo plano/fechado, FCM/APNs e a abertura da conversa ao tocar na notificação precisam ser comprovados em ambiente compatível antes da entrega.
 
-1. Crie um projeto no [Supabase](https://supabase.com/dashboard/projects) e, em **Storage**, crie o bucket `cp5-images` como **Public**. Defina `5 MB` como tamanho máximo e permita apenas `image/jpeg`, `image/png` e `image/webp`.
-2. Em **Settings > API**, copie a **Project URL** e a **Publishable key**. Nunca utilize nem exponha a `service_role`/secret key no aplicativo.
-3. Crie o `.env` a partir de `.env.example` e preencha:
-   ```env
-   EXPO_PUBLIC_SUPABASE_URL="https://SEU-PROJETO.supabase.co"
-   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY="sb_publishable_SUA_CHAVE_PUBLICA"
-   ```
-4. Em **Storage > Policies**, aplique uma política de `INSERT` para o bucket. O app utiliza Firebase Auth, e não Supabase Auth; por isso a regra abaixo permite upload com a chave pública, mas limita o destino e as extensões. Não adicione permissões de `UPDATE`, `DELETE` ou listagem ao cliente.
-   ```sql
-   create policy "CP5 allows image inserts"
-   on storage.objects for insert
-   to anon, authenticated
-   with check (
-     bucket_id = 'cp5-images'
-     and (storage.foldername(name))[1] in ('profiles', 'groups')
-     and storage.extension(name) in ('jpg', 'png', 'webp')
-   );
-   ```
+## API de notificações
 
-O bucket é público somente para leitura por URL, o que permite que avatares e fotos de grupo sejam exibidos por qualquer participante. Como a chave publicada no Expo é inevitavelmente visível, esta configuração deve ser usada apenas para imagens não sensíveis. Para controlar uploads por identidade Firebase de forma mais forte, a próxima evolução é gerar URLs de upload assinadas em uma rota autenticada da API, mantendo a chave secreta exclusivamente no servidor.
+- URL pública: `https://cp5-mobile.onrender.com`
+- Health check: `GET /health`
+- Envio de push: `POST /notifications/messages`
+- Processamento de recibos: `POST /notifications/receipts`
+- Sincronização: `POST /sync-members`
+- Grupos: `POST /groups`, `POST /groups/:id/join`, `POST /groups/:id/leave` e `PUT /groups/:id`
 
-**Notificações Push (Firebase Cloud Messaging - FCM) e Expo:**
-- O projeto usa `expo-notifications` para se comunicar com APNs (Apple) e FCM (Google Android).
-- A API calcula dinamicamente os destinatários e adquire a mensagem por uma transação atômica em `pushSent`. Estados finais não podem ser readquiridos por uma chamada duplicada.
-- O payload contém `conversationId` e `conversationType`, mas usa corpo genérico para não mostrar o conteúdo privado da mensagem na tela bloqueada.
-- Tickets são persistidos sem expor tokens ao cliente. O cron mantém tickets ainda sem recibo e remove o dispositivo somente quando o Expo retorna `DeviceNotRegistered`.
+O app envia `Authorization: Bearer <Firebase ID Token>` e, após persistir a mensagem, somente `conversationId` e `messageId`. A API relê a mensagem no RTDB, confirma o remetente, consulta Firestore, calcula destinatários ativos e usa uma transação em `pushSent` para impedir duplicidade.
 
-**Política de Notificações (Notification Policy):**
-Cada grupo suporta as seguintes políticas de notificação, processadas inteiramente pelo servidor Node.js de acordo com as regras:
-- `all_group_messages`: Todos os membros (exceto o remetente) recebem a notificação.
-- `mentioned_members`: Somente membros marcados na mensagem (`@membro`) recebem a notificação push.
-- `direct_messages_only`: O grupo fica silenciado, apenas conversas diretas continuam gerando notificações para o usuário.
-- `disabled`: Nenhuma mensagem deste grupo irá acionar uma notificação push para nenhum membro.
+Para executar localmente:
 
-**Configuração Operacional FCM / EAS (Android & iOS):**
-Para compilação nativa com Push Notifications funcionando fora do Expo Go, o projeto utiliza Continuous Native Generation (CNG) através do **EAS Build**:
-1. O repositório já contém arquivos-base (`google-services.json` e `GoogleService-Info.plist`). Para testes reais, faça o download das chaves oficias no Console do Firebase e os substitua.
-2. O `app.json` já está configurado apontando para esses arquivos nativos.
-3. Para Android, configure a Cloud Messaging Server Key (Legacy ou API V1) no painel do Expo utilizando `eas credentials`.
-4. Para iOS, configure a APNs Key (.p8) no portal do Apple Developer e envie para o Expo via `eas credentials`.
-5. Execute `eas build --profile development --platform android` para obter um APK / AAB funcional que possua os módulos nativos requeridos pelo push.
+```bash
+cd server
+npm install
+cp .env.example .env
+npm run typecheck
+npm test
+npm run build
+npm start
+```
 
----
+No Render, configure manualmente o serviço com raiz `server`, build `npm ci && npm run build`, start `npm start`, Node 22.13 e health check `/health`. Cadastre `FIREBASE_PROJECT_ID`, `FIREBASE_DATABASE_URL`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` e `CRON_SECRET` exclusivamente como segredos. `EXPO_ACCESS_TOKEN` é opcional e só é necessário se a segurança aprimorada do Expo Push estiver habilitada. Agende uma chamada autenticada a `/notifications/receipts` para processar tickets e desativar tokens inválidos. O passo a passo detalhado está em `CONFIGURACAO_FIREBASE_FCM_EAS.md`.
 
-## ✅ Validações automatizadas
+No logout, o app desativa primeiro o token Expo Push do aparelho e só então encerra a sessão. Se essa desassociação falhar, o logout é interrompido e a interface pede nova tentativa, evitando que um aparelho compartilhado continue recebendo mensagens da conta anterior. Uma rotação de token também desativa o documento antigo antes de registrar o novo.
 
-- App: `npx expo lint` e `npx tsc --noEmit`.
-- API: `cd server && npm test` e `npm run typecheck`.
-- Os testes da API cobrem as quatro políticas, a exclusão do remetente, filtragem de não integrantes e seleção explícita/menções.
-- O limite concorrente é protegido por `runTransaction` do Firestore. O teste de concorrência com duas sessões reais na última vaga ainda deve ser executado no projeto Firebase entregue antes da apresentação; ele não é substituído pelo teste unitário de políticas.
+Use uma conta de serviço dedicada e conceda apenas as permissões necessárias para Authentication, Firestore e Realtime Database; não use Owner/Editor. Nenhum arquivo de conta de serviço deve ser versionado.
 
----
+## Políticas e concorrência
 
-## 📸 Evidências Reais de Funcionamento
+- `all_group_messages`: notifica integrantes ativos, exceto o remetente.
+- `mentioned_members`: notifica apenas integrantes mencionados ou selecionados.
+- `direct_messages_only`: grupos não geram push; conversas diretas continuam habilitadas.
+- `disabled`: a conversa não gera push.
 
-*(Pendente substituir o marcador abaixo por uma captura real feita em dispositivo físico antes da entrega.)*
-![Push Notification Evidence](https://via.placeholder.com/400x200?text=Evidencia+de+Push+Aqui)
+O proprietário é o único que altera a política do grupo. Adições de integrantes usam transação do Firestore: a API relê proprietário, integrantes e `memberLimit`, valida a última vaga e grava o novo estado atomicamente. `membershipVersion` e uma transação no espelho `chat_members` do RTDB impedem sincronizações antigas de restaurarem acesso removido.
+
+## Evidências e validação final
+
+As verificações automatizadas disponíveis são:
+
+```bash
+npm run check
+npm run test:api
+cd server && npm run typecheck && npm test
+```
+
+Antes da apresentação, anexar nesta seção evidências reais — sem placeholders — dos seguintes cenários:
+
+- telas de login, cadastro, lista, conversa direta, grupo e perfil;
+- dois usuários reais trocando mensagens;
+- disputa simultânea pela última vaga do grupo;
+- quatro políticas de push com destinatários diferentes;
+- push recebido com app aberto, em segundo plano e fechado;
+- execução em Android; a validação física em iOS foi dispensada pelo professor porque a equipe não possui o equipamento necessário.
+
+Essas evidências físicas ainda não estão no repositório e, por isso, os itens correspondentes permanecem desmarcados no checklist.

@@ -1,177 +1,303 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, FlatList, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { useAuth } from '../../hooks/useAuth';
-import { listenToMessages, sendMessage } from '../../services/chatService';
-import { ChatMessage } from '../../types/chat';
-import { getUserProfile, getUserProfiles } from '../../services/userService';
-import { getDoc, doc } from 'firebase/firestore';
-import { firestore } from '../../services/firebase';
-import { Avatar } from '../../components/Avatar';
-import { theme } from '../../theme';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, FlatList, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../hooks/useAuth';
+import { getDirectConversationById, listenToMessages, MessagePersistedPushError, sendMessage } from '../../services/chatService';
+import { listenToGroup } from '../../services/groupService';
+import { getUserProfile, getUserProfiles } from '../../services/userService';
+import { ChatMessage } from '../../types/chat';
+import { ChatRouteParams, groupDetailsRoute, profileRoute } from '../../types/navigation';
+import { ChatUser } from '../../types/user';
+import { Avatar } from '../../components/Avatar';
+import { ErrorMessage } from '../../components/ErrorMessage';
+import { Loading } from '../../components/Loading';
+import { MessageBubble } from '../../components/MessageBubble';
+import { MessageComposer } from '../../components/MessageComposer';
+import { theme } from '../../theme';
+
+type ConversationAccess = 'checking' | 'available' | 'unavailable';
+const EMPTY_CHAT_MEMBERS: ChatUser[] = [];
+
+type ConversationMetadata = {
+  conversationId: string;
+  name: string;
+  photoUrl?: string;
+  otherUserId?: string;
+  access: ConversationAccess;
+};
 
 export default function ChatScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const { id, type, name, photoUrl, otherUserId } = useLocalSearchParams<{ id: string, type: 'direct' | 'group', name: string, photoUrl: string, otherUserId?: string }>();
-  
+  const { id, type } = useLocalSearchParams<ChatRouteParams>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loadedConversationId, setLoadedConversationId] = useState<string | null>(null);
+  const [screenError, setScreenError] = useState('');
+  const [metadata, setMetadata] = useState<ConversationMetadata>({
+    conversationId: '',
+    name: 'Chat',
+    access: 'checking',
+  });
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [authorNames, setAuthorNames] = useState<Record<string, string>>({});
-  const flatListRef = useRef<FlatList>(null);
-
-  // Mentions
-  const [chatMembers, setChatMembers] = useState<{uid: string, name: string}[]>([]);
+  const [memberState, setMemberState] = useState<{ conversationId: string; members: ChatUser[] }>({
+    conversationId: '',
+    members: [],
+  });
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentions, setMentions] = useState<string[]>([]);
+  const flatListRef = useRef<FlatList<ChatMessage>>(null);
+
+  const validConversation = Boolean(id && (type === 'direct' || type === 'group'));
+  const metadataIsCurrent = metadata.conversationId === id;
+  const conversationName = metadataIsCurrent ? metadata.name : 'Chat';
+  const conversationPhotoUrl = metadataIsCurrent ? metadata.photoUrl : undefined;
+  const resolvedOtherUserId = metadataIsCurrent ? metadata.otherUserId : undefined;
+  const accessStatus: ConversationAccess = metadataIsCurrent ? metadata.access : 'checking';
+  const chatMembers = memberState.conversationId === id ? memberState.members : EMPTY_CHAT_MEMBERS;
 
   useEffect(() => {
-    if (!id) return;
-    const unsubscribe = listenToMessages(id, (msgs) => {
-      setMessages(msgs);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    if (!validConversation) return;
+
+    const unsubscribe = listenToMessages(id, (nextMessages) => {
+      setMessages(nextMessages);
+      setLoadedConversationId(id);
+      requestAnimationFrame(() => flatListRef.current?.scrollToEnd({ animated: true }));
+    }, (listenerError) => {
+      setScreenError(listenerError.message);
+      setLoadedConversationId(id);
     });
-    return () => unsubscribe();
-  }, [id]);
+    return unsubscribe;
+  }, [id, validConversation]);
 
   useEffect(() => {
-    if (type !== 'group') return;
-    const loadAuthors = async () => {
-      setAuthorNames(prev => {
-        const updateAuthors = async () => {
-          let newNames = { ...prev };
-          let changed = false;
-          for (const msg of messages) {
-            if (!newNames[msg.senderId]) {
-              const profile = await getUserProfile(msg.senderId);
-              if (profile) {
-                newNames[msg.senderId] = profile.name;
-                changed = true;
-              }
-            }
-          }
-          if (changed) setAuthorNames(newNames);
-        };
-        updateAuthors();
-        return prev;
-      });
+    if (!id || !user || (type !== 'direct' && type !== 'group')) return;
+
+    let active = true;
+    let memberRequest = 0;
+
+    const markUnavailable = (message: string) => {
+      if (!active) return;
+      setMetadata({ conversationId: id, name: 'Chat', access: 'unavailable' });
+      setMemberState({ conversationId: id, members: [] });
+      setScreenError(message);
     };
-    loadAuthors();
-  }, [messages, type]);
 
-  useEffect(() => {
-    if (type === 'group' && id) {
-      const fetchMembers = async () => {
-        const groupSnap = await getDoc(doc(firestore, 'groups', id));
-        if (groupSnap.exists()) {
-          const mIds = groupSnap.data().memberIds || [];
-          if (mIds.length === 0) return;
-          setChatMembers(await getUserProfiles(mIds));
+    if (type === 'direct') {
+      void (async () => {
+        try {
+          const conversation = await getDirectConversationById(id);
+          const nextOtherUserId = conversation?.participantIds.find(
+            (participantId) => participantId !== user.uid,
+          );
+          if (!conversation || !conversation.participantIds.includes(user.uid) || !nextOtherUserId) {
+            markUnavailable('Esta conversa não está disponível para a sua conta.');
+            return;
+          }
+
+          const profile = await getUserProfile(nextOtherUserId);
+          if (!profile) {
+            markUnavailable('Não foi possível carregar o perfil do outro participante.');
+            return;
+          }
+
+          if (active) {
+            setMetadata({
+              conversationId: id,
+              name: profile.name,
+              photoUrl: profile.photoUrl,
+              otherUserId: profile.uid,
+              access: 'available',
+            });
+            setScreenError('');
+          }
+        } catch {
+          markUnavailable('Não foi possível validar esta conversa. Volte à lista e tente novamente.');
         }
+      })();
+
+      return () => {
+        active = false;
       };
-      fetchMembers();
     }
-  }, [type, id]);
 
-  const handleTextChange = (val: string) => {
-    setText(val);
-    const lastWord = val.split(' ').pop();
-    if (lastWord && lastWord.startsWith('@')) {
-      setMentionQuery(lastWord.substring(1).toLowerCase());
-    } else {
-      setMentionQuery(null);
-    }
-  };
+    const unsubscribe = listenToGroup(id, (group) => {
+      if (!active) return;
+      if (!group || !group.memberIds.includes(user.uid)) {
+        markUnavailable('Você não participa mais deste grupo.');
+        return;
+      }
 
-  const selectMention = (mUser: {uid: string, name: string}) => {
-    const words = text.split(' ');
-    words.pop();
-    const newText = words.join(' ') + (words.length > 0 ? ' ' : '') + `@${mUser.name} `;
-    setText(newText);
-    if (!mentions.includes(mUser.uid)) {
-      setMentions([...mentions, mUser.uid]);
-    }
+      setMetadata({
+        conversationId: id,
+        name: group.name,
+        photoUrl: group.photoUrl,
+        access: 'available',
+      });
+      setScreenError('');
+
+      const requestId = ++memberRequest;
+      void getUserProfiles(group.memberIds).then((profiles) => {
+        if (active && requestId === memberRequest) {
+          setMemberState({ conversationId: id, members: profiles });
+        }
+      }).catch(() => {
+        if (active && requestId === memberRequest) {
+          setMemberState({ conversationId: id, members: [] });
+          setScreenError('O chat está disponível, mas não foi possível carregar os nomes dos integrantes.');
+        }
+      });
+    }, () => {
+      markUnavailable('Seu acesso a este grupo não está mais disponível.');
+    });
+
+    return () => {
+      active = false;
+      memberRequest += 1;
+      unsubscribe();
+    };
+  }, [id, type, user]);
+
+  const authorNames = useMemo(
+    () => Object.fromEntries(chatMembers.map((member) => [member.uid, member.name])),
+    [chatMembers],
+  );
+
+  const sortedMessages = useMemo(
+    () => [...messages].sort((left, right) => left.createdAt - right.createdAt),
+    [messages],
+  );
+
+  const mentionSuggestions = useMemo(() => {
+    if (mentionQuery === null || type !== 'group' || accessStatus !== 'available') return [];
+    return chatMembers.filter((member) => (
+      member.uid !== user?.uid
+      && member.name.toLocaleLowerCase('pt-BR').includes(mentionQuery)
+    ));
+  }, [accessStatus, chatMembers, mentionQuery, type, user?.uid]);
+
+  const handleTextChange = useCallback((value: string) => {
+    setText(value);
+    const lastWord = value.split(/\s/).at(-1);
+    setMentionQuery(lastWord?.startsWith('@')
+      ? lastWord.slice(1).toLocaleLowerCase('pt-BR')
+      : null);
+  }, []);
+
+  const selectMention = useCallback((member: ChatUser) => {
+    setText((currentText) => {
+      const words = currentText.split(/\s/);
+      words.pop();
+      return `${words.join(' ')}${words.length > 0 ? ' ' : ''}@${member.name} `;
+    });
+    setMentions((current) => current.includes(member.uid) ? current : [...current, member.uid]);
     setMentionQuery(null);
-  };
+  }, []);
 
   const handleSend = useCallback(async () => {
-    if (!text.trim() || !user || !id) return;
-
+    if (!text.trim() || !user || !id || !validConversation || accessStatus !== 'available') return;
     try {
       setSending(true);
+      setScreenError('');
       await sendMessage({
         conversationId: id,
         conversationType: type,
-        senderId: user.uid,
         text: text.trim(),
-        target: mentions.length > 0 ? { type: 'member', memberId: mentions[0] } : { type: 'conversation' },
-        ...(mentions.length > 0 && { mentionedUserIds: mentions })
+        target: mentions.length > 0
+          ? { type: 'member', memberId: mentions[0] }
+          : { type: 'conversation' },
+        mentionedUserIds: mentions,
       });
       setText('');
       setMentions([]);
-    } catch (err: unknown) {
-      console.error(err);
-      if (err instanceof Error && err.message.includes('notificação')) {
-        alert('Aviso: A mensagem foi gravada, mas houve uma falha no servidor ao enviar a notificação para os destinatários.');
+      setMentionQuery(null);
+    } catch (error: unknown) {
+      if (error instanceof MessagePersistedPushError) {
+        setText('');
+        setMentions([]);
+        setMentionQuery(null);
+        Alert.alert('Mensagem enviada', 'A mensagem foi salva, mas a notificação não pôde ser acionada.');
       } else {
-        alert('Falha ao enviar a mensagem. Verifique a conexão ou as permissões do banco de dados.');
+        setScreenError('Falha ao enviar a mensagem. Verifique sua conexão e tente novamente.');
       }
     } finally {
       setSending(false);
     }
-  }, [text, user, id, type, mentions]);
+  }, [accessStatus, id, mentions, text, type, user, validConversation]);
 
   const goToProfileOrGroup = useCallback(() => {
-    if (type === 'direct' && otherUserId) {
-      router.push(`/(main)/profile?userId=${otherUserId}`);
-    } else if (type === 'group') {
-      router.push(`/(main)/group-details?id=${id}`);
+    if (type === 'direct' && resolvedOtherUserId) {
+      router.push(profileRoute({ userId: resolvedOtherUserId }));
+    } else if (type === 'group' && id) {
+      router.push(groupDetailsRoute({ id }));
     }
-  }, [type, otherUserId, router, id]);
+  }, [id, resolvedOtherUserId, router, type]);
 
-  const sortedMessages = useMemo(() => {
-    return [...messages].sort((a, b) => a.createdAt - b.createdAt);
-  }, [messages]);
+  const returnToConversations = useCallback(() => {
+    router.replace('/(main)/conversations');
+  }, [router]);
+
+  if (!validConversation) {
+    return <View style={styles.errorScreen}><ErrorMessage message="Conversa inválida. Volte para a lista e tente novamente." /></View>;
+  }
+  if (loadedConversationId !== id) {
+    return <Loading message="Carregando mensagens..." />;
+  }
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      <Stack.Screen 
+      <Stack.Screen
         options={{
-          title: name || 'Chat',
-          headerStyle: { backgroundColor: theme.colors.card },
-          headerTintColor: theme.colors.text,
-          headerShadowVisible: false,
+          title: conversationName,
           headerRight: () => (
-            <TouchableOpacity onPress={goToProfileOrGroup} activeOpacity={0.7} style={styles.headerRight}>
-              <Avatar uri={photoUrl} style={styles.headerAvatar} />
-              <Ionicons name="information-circle-outline" size={24} color={theme.colors.primaryDark} style={{ marginLeft: 8 }} />
+            <TouchableOpacity
+              accessibilityLabel="Abrir detalhes"
+              disabled={accessStatus !== 'available'}
+              onPress={goToProfileOrGroup}
+              style={styles.headerRight}
+            >
+              <Avatar uri={conversationPhotoUrl} style={styles.headerAvatar} />
+              <Ionicons name="information-circle-outline" size={24} color={theme.colors.primaryDark} style={styles.infoIcon} />
             </TouchableOpacity>
-          )
-        }} 
+          ),
+        }}
       />
+
+      <ErrorMessage message={screenError} />
+
+      {accessStatus === 'checking' && (
+        <View style={styles.accessNotice}>
+          <Text style={styles.accessNoticeText}>Validando participantes da conversa...</Text>
+        </View>
+      )}
+
+      {accessStatus === 'unavailable' && (
+        <View style={styles.accessBlocked}>
+          <Text style={styles.accessBlockedText}>O envio foi bloqueado para proteger esta conversa.</Text>
+          <TouchableOpacity accessibilityRole="button" onPress={returnToConversations} style={styles.backButton}>
+            <Text style={styles.backButtonText}>Voltar às conversas</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <FlatList
         ref={flatListRef}
         data={sortedMessages}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => {
-          const isMine = item.senderId === user?.uid;
-          const authorName = type === 'group' ? (isMine ? 'Você' : (authorNames[item.senderId] || '...')) : null;
-
-          return (
-            <View style={[styles.messageWrapper, isMine ? styles.wrapperMine : styles.wrapperTheirs]}>
-              <View style={[styles.messageBubble, isMine ? styles.mine : styles.theirs]}>
-                {authorName && <Text style={[styles.authorText, isMine && styles.authorTextMine]}>{authorName}</Text>}
-                <Text style={[styles.messageText, isMine ? styles.messageTextMine : styles.messageTextTheirs]}>{item.text}</Text>
-              </View>
-            </View>
-          );
-        }}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <MessageBubble
+            message={item}
+            isMine={item.senderId === user?.uid}
+            authorName={type === 'group'
+              ? (item.senderId === user?.uid ? 'Você' : authorNames[item.senderId] || 'Participante')
+              : undefined}
+          />
+        )}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.border} />
@@ -179,151 +305,41 @@ export default function ChatScreen() {
           </View>
         }
         contentContainerStyle={styles.listContent}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
       />
 
-      {mentionQuery !== null && chatMembers.length > 0 && (
+      {mentionQuery !== null && (
         <ScrollView style={styles.mentionBox} keyboardShouldPersistTaps="always">
-          {chatMembers.filter(m => m.name.toLowerCase().includes(mentionQuery) && m.uid !== user?.uid).map(m => (
-            <TouchableOpacity key={m.uid} style={styles.mentionItem} onPress={() => selectMention(m)}>
-              <Text style={styles.mentionText}>{m.name}</Text>
+          {mentionSuggestions.length === 0 ? (
+            <Text style={styles.noMention}>Nenhum integrante encontrado.</Text>
+          ) : mentionSuggestions.map((member) => (
+            <TouchableOpacity key={member.uid} style={styles.mentionItem} onPress={() => selectMention(member)}>
+              <Text style={styles.mentionText}>{member.name}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       )}
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={handleTextChange}
-          placeholder="Digite uma mensagem..."
-          placeholderTextColor={theme.colors.textSecondary}
-          editable={!sending}
-          multiline
-        />
-        <TouchableOpacity 
-          style={[styles.sendButton, !text.trim() && styles.sendButtonDisabled]} 
-          onPress={handleSend} 
-          disabled={!text.trim() || sending}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color="#FFF" />
-          ) : (
-            <Ionicons name="send" size={20} color={text.trim() ? "#FFF" : theme.colors.textSecondary} style={{ marginLeft: 2 }} />
-          )}
-        </TouchableOpacity>
-      </View>
+      <MessageComposer
+        value={text}
+        sending={sending}
+        disabled={accessStatus !== 'available'}
+        onChangeText={handleTextChange}
+        onSend={handleSend}
+      />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  listContent: {
-    padding: theme.spacing.md,
-    flexGrow: 1,
-    justifyContent: 'flex-end',
-  },
-  messageWrapper: {
-    flexDirection: 'row',
-    marginVertical: 4,
-  },
-  wrapperMine: {
-    justifyContent: 'flex-end',
-  },
-  wrapperTheirs: {
-    justifyContent: 'flex-start',
-  },
-  messageBubble: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    maxWidth: '80%',
-    ...theme.shadows.sm,
-  },
-  mine: {
-    backgroundColor: theme.colors.primaryDark,
-    borderBottomRightRadius: 4,
-  },
-  theirs: {
-    backgroundColor: theme.colors.card,
-    borderBottomLeftRadius: 4,
-  },
-  authorText: {
-    ...theme.typography.caption,
-    fontWeight: 'bold',
-    color: theme.colors.primaryDark,
-    marginBottom: 4,
-  },
-  authorTextMine: {
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  messageText: {
-    ...theme.typography.body,
-    lineHeight: 22,
-  },
-  messageTextMine: {
-    color: '#FFFFFF',
-  },
-  messageTextTheirs: {
-    color: theme.colors.text,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: theme.spacing.sm,
-    paddingBottom: Platform.OS === 'ios' ? theme.spacing.xl : theme.spacing.sm,
-    backgroundColor: theme.colors.card,
-    borderTopWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: 'flex-end',
-  },
-  input: {
-    flex: 1,
-    backgroundColor: theme.colors.inputBackground,
-    borderRadius: 24,
-    paddingHorizontal: theme.spacing.lg,
-    paddingTop: 12,
-    paddingBottom: 12,
-    marginRight: theme.spacing.sm,
-    minHeight: 48,
-    maxHeight: 120,
-    fontSize: 16,
-    color: theme.colors.text,
-  },
-  sendButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.colors.primaryDark,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...theme.shadows.sm,
-  },
-  sendButtonDisabled: {
-    backgroundColor: theme.colors.inputBackground,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: theme.spacing.xxl,
-  },
-  emptyText: {
-    ...theme.typography.body,
-    color: theme.colors.textSecondary,
-    marginTop: theme.spacing.md,
-  },
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  errorScreen: { flex: 1, justifyContent: 'center', padding: theme.spacing.lg, backgroundColor: theme.colors.background },
+  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  headerAvatar: { width: 36, height: 36, borderRadius: 18 },
+  infoIcon: { marginLeft: theme.spacing.sm },
+  listContent: { flexGrow: 1, justifyContent: 'flex-end', padding: theme.spacing.md },
+  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: theme.spacing.xxl },
+  emptyText: { ...theme.typography.body, color: theme.colors.textSecondary, marginTop: theme.spacing.md },
   mentionBox: {
     maxHeight: 150,
     backgroundColor: theme.colors.card,
@@ -331,14 +347,26 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     ...theme.shadows.md,
   },
-  mentionItem: {
-    padding: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderColor: theme.colors.border,
+  mentionItem: { padding: theme.spacing.md, borderBottomWidth: 1, borderColor: theme.colors.border },
+  mentionText: { ...theme.typography.body, color: theme.colors.primaryDark, fontWeight: '500' },
+  noMention: { ...theme.typography.caption, padding: theme.spacing.md, textAlign: 'center' },
+  accessNotice: {
+    padding: theme.spacing.sm,
+    backgroundColor: theme.colors.inputBackground,
   },
-  mentionText: {
-    ...theme.typography.body,
-    fontWeight: '500',
-    color: theme.colors.primaryDark,
-  }
+  accessNoticeText: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  accessBlocked: {
+    alignItems: 'center',
+    padding: theme.spacing.md,
+    backgroundColor: '#FFF7ED',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  accessBlockedText: { ...theme.typography.body, color: '#9A3412', textAlign: 'center' },
+  backButton: { marginTop: theme.spacing.sm, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm },
+  backButtonText: { color: theme.colors.primaryDark, fontWeight: 'bold' },
 });

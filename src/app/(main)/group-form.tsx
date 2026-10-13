@@ -1,17 +1,18 @@
-import { type ComponentProps, useState, useEffect } from 'react';
-import { View, TextInput, StyleSheet, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { type ComponentProps, useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../hooks/useAuth';
 import { createGroup } from '../../services/groupService';
 import { uploadImageAsync } from '../../services/storageService';
 import { getAllUsers } from '../../services/userService';
 import { ChatUser } from '../../types/user';
-import { ErrorMessage } from '../../components/ErrorMessage';
-import * as ImagePicker from 'expo-image-picker';
 import { NotificationPolicy } from '../../types/group';
+import { chatRoute } from '../../types/navigation';
+import { ErrorMessage } from '../../components/ErrorMessage';
 import { Avatar } from '../../components/Avatar';
 import { theme } from '../../theme';
-import { Ionicons } from '@expo/vector-icons';
 
 const notificationPolicyOptions: readonly {
   id: NotificationPolicy;
@@ -20,421 +21,208 @@ const notificationPolicyOptions: readonly {
 }[] = [
   { id: 'all_group_messages', label: 'Todas', icon: 'notifications' },
   { id: 'mentioned_members', label: 'Menções', icon: 'at' },
-  { id: 'direct_messages_only', label: 'Diretas', icon: 'chatbubble' },
-  { id: 'disabled', label: 'Off', icon: 'notifications-off' },
+  { id: 'direct_messages_only', label: 'Só diretas', icon: 'chatbubble' },
+  { id: 'disabled', label: 'Desativadas', icon: 'notifications-off' },
 ];
 
 export default function GroupFormScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  
   const [name, setName] = useState('');
   const [memberLimit, setMemberLimit] = useState('10');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [policy, setPolicy] = useState<NotificationPolicy>('all_group_messages');
-  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(true);
   const [error, setError] = useState('');
   const [users, setUsers] = useState<ChatUser[]>([]);
-  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
-    getAllUsers().then(u => setUsers(u.filter(ui => ui.uid !== user?.uid))).catch(() => setError('Falha de rede ao buscar usuários.'));
-  }, [user]);
-
-  const toggleUser = (id: string) => {
-    const newSet = new Set(selectedUserIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedUserIds(newSet);
-  };
-
-  const pickImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permissionResult.granted === false) {
-      setError("Permissão para acessar a galeria é necessária!");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.3,
+    let active = true;
+    getAllUsers().then((result) => {
+      if (active) setUsers(result.filter((candidate) => candidate.uid !== user?.uid));
+    }).catch(() => {
+      if (active) setError('Falha ao buscar usuários. Verifique sua conexão.');
+    }).finally(() => {
+      if (active) setLoadingUsers(false);
     });
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
 
-    if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri);
-    }
-  };
+  const numericLimit = /^\d+$/.test(memberLimit) ? Number(memberLimit) : 0;
+  const totalMembers = selectedUserIds.size + 1;
+  const vacancies = Math.max(numericLimit - totalMembers, 0);
+  const selectionAtLimit = numericLimit >= 2 && totalMembers >= numericLimit;
 
-  const handleCreate = async () => {
-    if (!name || !memberLimit || !user) {
-      setError('Preencha os campos obrigatórios.');
+  const selectedSummary = useMemo(
+    () => `${totalMembers} integrante${totalMembers === 1 ? '' : 's'} • ${vacancies} vaga${vacancies === 1 ? '' : 's'}`,
+    [totalMembers, vacancies],
+  );
+
+  const toggleUser = useCallback((userId: string) => {
+    setError('');
+    setSelectedUserIds((current) => {
+      const next = new Set(current);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else if (numericLimit >= 2 && next.size + 1 >= numericLimit) {
+        setError('O grupo já atingiu o limite informado.');
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  }, [numericLimit]);
+
+  const pickImage = useCallback(async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError('Permissão da galeria negada. Ative-a nas configurações do aparelho.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3,
+      });
+      if (!result.canceled) setPhotoUri(result.assets[0].uri);
+    } catch {
+      setError('Não foi possível abrir a galeria.');
+    }
+  }, []);
+
+  const handleCreate = useCallback(async () => {
+    if (!user) {
+      setError('Sua sessão expirou. Entre novamente.');
       return;
     }
-    if (!photoUri) {
-      setError('A foto do grupo é obrigatória.');
+    if (!name.trim() || !photoUri) {
+      setError('Informe o nome e selecione uma foto para o grupo.');
       return;
     }
-    if (!/^\d+$/.test(memberLimit)) {
-      setError('O limite de membros deve ser estritamente numérico.');
-      return;
-    }
-    const limitNum = Number(memberLimit);
-    if (isNaN(limitNum) || limitNum < 2) {
-      setError('O limite de membros deve ser um número inteiro (mínimo 2).');
+    if (!Number.isInteger(numericLimit) || numericLimit < 2) {
+      setError('O limite deve ser um número inteiro maior ou igual a 2.');
       return;
     }
     if (selectedUserIds.size < 1) {
-      setError('Selecione pelo menos 1 membro adicional (total 2 com você).');
+      setError('Selecione pelo menos um integrante além de você.');
       return;
     }
-    if (selectedUserIds.size + 1 > limitNum) {
-      setError('O número de membros selecionados excede o limite do grupo.');
+    if (totalMembers > numericLimit) {
+      setError('A quantidade de integrantes excede o limite do grupo.');
       return;
     }
 
     try {
-      setLoading(true);
+      setSubmitting(true);
       setError('');
-      
-      let photoUrl = '';
-      if (photoUri) {
-        photoUrl = await uploadImageAsync(photoUri, `groups/${user.uid}-${Date.now()}`);
-      }
-
-      const finalMemberIds = [user.uid, ...Array.from(selectedUserIds)];
-      
+      const photoUrl = await uploadImageAsync(photoUri, `groups/${user.uid}-${Date.now()}`);
       const groupId = await createGroup({
-        name,
+        name: name.trim(),
         photoUrl,
-        ownerId: user.uid,
-        memberIds: finalMemberIds,
-        memberLimit: limitNum,
+        memberIds: [user.uid, ...selectedUserIds],
+        memberLimit: numericLimit,
         notificationPolicy: policy,
       });
-
-      router.replace(`/(main)/chat?id=${groupId}&type=group&name=${encodeURIComponent(name)}&photoUrl=${encodeURIComponent(photoUrl)}`);
-    } catch {
-      setError('Falha ao processar criação do grupo.');
+      router.replace(chatRoute({ id: groupId, type: 'group', name: name.trim(), photoUrl }));
+    } catch (createError: unknown) {
+      setError(createError instanceof Error
+        ? createError.message
+        : 'Não foi possível criar o grupo.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
-  };
+  }, [name, numericLimit, photoUri, policy, router, selectedUserIds, totalMembers, user]);
 
   return (
-    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <Text style={styles.title}>Novo Grupo</Text>
-        <Text style={styles.subtitle}>Crie um espaço para conversar com seus amigos</Text>
+        <Text style={styles.title}>Novo grupo</Text>
+        <Text style={styles.subtitle}>Defina os dados, integrantes e notificações.</Text>
       </View>
 
-      <TouchableOpacity style={styles.imagePicker} onPress={pickImage} activeOpacity={0.8}>
-        {photoUri ? (
-          <Avatar uri={photoUri} style={styles.image} />
-        ) : (
+      <TouchableOpacity style={styles.imagePicker} onPress={pickImage} disabled={submitting}>
+        {photoUri ? <Avatar uri={photoUri} style={styles.image} /> : (
           <View style={styles.imagePlaceholder}>
             <Ionicons name="camera" size={32} color={theme.colors.primaryDark} />
-            <Text style={styles.imagePlaceholderText}>Adicionar Foto</Text>
-          </View>
-        )}
-        {photoUri && (
-          <View style={styles.editBadge}>
-            <Ionicons name="pencil" size={14} color="#FFF" />
+            <Text style={styles.imagePlaceholderText}>Adicionar foto</Text>
           </View>
         )}
       </TouchableOpacity>
 
       <View style={styles.card}>
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Nome do Grupo</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: Amigos da Faculdade"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={name}
-            onChangeText={setName}
-          />
-        </View>
+        <Text style={styles.label}>Nome do grupo</Text>
+        <TextInput style={styles.input} value={name} onChangeText={setName} maxLength={80} editable={!submitting} placeholder="Ex.: Amigos da faculdade" placeholderTextColor={theme.colors.textSecondary} />
+        <Text style={styles.label}>Limite de integrantes (mínimo 2)</Text>
+        <TextInput style={styles.input} value={memberLimit} onChangeText={setMemberLimit} editable={!submitting} keyboardType="number-pad" placeholder="Ex.: 10" placeholderTextColor={theme.colors.textSecondary} />
+        <Text style={styles.summary}>{selectedSummary}</Text>
 
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Limite de Integrantes (min: 2)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: 10"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={memberLimit}
-            onChangeText={setMemberLimit}
-            keyboardType="numeric"
-          />
-        </View>
-
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Política de Notificações</Text>
-          <View style={styles.policyContainer}>
-            {notificationPolicyOptions.map((p) => (
-              <TouchableOpacity 
-                key={p.id}
-                style={[styles.policyOption, policy === p.id && styles.policyOptionActive]}
-                onPress={() => setPolicy(p.id)}
-              >
-                <Ionicons name={p.icon} size={18} color={policy === p.id ? '#FFF' : theme.colors.primaryDark} />
-                <Text style={[styles.policyText, policy === p.id && styles.policyTextActive]}>{p.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        <Text style={styles.label}>Política de notificações</Text>
+        <View style={styles.policyContainer}>
+          {notificationPolicyOptions.map((option) => (
+            <TouchableOpacity key={option.id} style={[styles.policyOption, policy === option.id && styles.policyOptionActive]} onPress={() => setPolicy(option.id)} disabled={submitting}>
+              <Ionicons name={option.icon} size={18} color={policy === option.id ? '#FFFFFF' : theme.colors.primaryDark} />
+              <Text style={[styles.policyText, policy === option.id && styles.policyTextActive]}>{option.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
       </View>
 
       <View style={styles.card}>
-        <View style={styles.membersHeader}>
-          <Text style={styles.sectionTitle}>Selecionar Membros</Text>
-          <Text style={styles.membersCount}>
-            {selectedUserIds.size} / {Number(memberLimit) > 0 ? (Number(memberLimit) - 1) : '?'} vagas
-          </Text>
-        </View>
-        
-        {users.length === 0 ? (
-          <Text style={styles.emptyText}>Nenhum usuário disponível para adicionar.</Text>
-        ) : (
-          users.map(u => {
-            const isSelected = selectedUserIds.has(u.uid);
-            return (
-              <TouchableOpacity 
-                key={u.uid} 
-                onPress={() => toggleUser(u.uid)} 
-                style={[styles.userRow, isSelected && styles.userRowSelected]}
-                activeOpacity={0.7}
-              >
-                <Avatar uri={u.photoUrl} style={styles.userAvatar} />
-                <Text style={[styles.userName, isSelected && styles.userNameSelected]}>
-                  {u.name}
-                </Text>
-                <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-                  {isSelected && <Ionicons name="checkmark" size={16} color="#FFF" />}
-                </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
+        <Text style={styles.sectionTitle}>Selecionar integrantes</Text>
+        {loadingUsers ? (
+          <ActivityIndicator color={theme.colors.primaryDark} />
+        ) : users.length === 0 ? (
+          <Text style={styles.emptyText}>Nenhum outro usuário disponível.</Text>
+        ) : users.map((candidate) => {
+          const selected = selectedUserIds.has(candidate.uid);
+          return (
+            <TouchableOpacity key={candidate.uid} style={[styles.userRow, selected && styles.userRowSelected]} onPress={() => toggleUser(candidate.uid)} disabled={submitting || (!selected && selectionAtLimit)}>
+              <Avatar uri={candidate.photoUrl} style={styles.userAvatar} />
+              <Text style={styles.userName}>{candidate.name}</Text>
+              <Ionicons name={selected ? 'checkmark-circle' : 'ellipse-outline'} size={24} color={selected ? theme.colors.primaryDark : theme.colors.border} />
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <ErrorMessage message={error} />
-      
-      <TouchableOpacity style={styles.primaryButton} onPress={handleCreate} disabled={loading}>
-        <View
-          style={styles.gradientButton}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="add-circle-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.primaryButtonText}>Criar Grupo</Text>
-            </>
-          )}
-        </View>
+      <TouchableOpacity style={styles.primaryButton} onPress={handleCreate} disabled={submitting || loadingUsers}>
+        {submitting ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>Criar grupo</Text>}
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    padding: theme.spacing.lg,
-    backgroundColor: theme.colors.background,
-    flexGrow: 1,
-    paddingBottom: theme.spacing.xxl,
-  },
-  header: {
-    marginBottom: theme.spacing.xl,
-    alignItems: 'center',
-  },
-  title: {
-    ...theme.typography.title,
-    fontSize: 28,
-  },
-  subtitle: {
-    ...theme.typography.subtitle,
-    marginTop: theme.spacing.xs,
-  },
-  card: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.borderRadius.xl,
-    padding: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
-    ...theme.shadows.sm,
-  },
-  imagePicker: {
-    alignSelf: 'center',
-    marginBottom: theme.spacing.xl,
-    position: 'relative',
-  },
-  image: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 4,
-    borderColor: theme.colors.primaryLight,
-  },
-  imagePlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: theme.colors.inputBackground,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: theme.colors.primaryLight,
-    borderStyle: 'dashed',
-  },
-  imagePlaceholderText: {
-    color: theme.colors.primaryDark,
-    fontSize: 14,
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  editBadge: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: theme.colors.primaryDark,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
-  formGroup: {
-    marginBottom: theme.spacing.lg,
-  },
-  label: {
-    ...theme.typography.caption,
-    fontWeight: 'bold',
-    marginBottom: theme.spacing.sm,
-    marginLeft: theme.spacing.sm,
-  },
-  input: {
-    backgroundColor: theme.colors.inputBackground,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.lg,
-    fontSize: 16,
-    color: theme.colors.text,
-  },
-  policyContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.sm,
-  },
-  policyOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.inputBackground,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.round,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  policyOptionActive: {
-    backgroundColor: theme.colors.primaryDark,
-    borderColor: theme.colors.primaryDark,
-  },
-  policyText: {
-    ...theme.typography.caption,
-    color: theme.colors.text,
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  policyTextActive: {
-    color: '#FFF',
-  },
-  membersHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: theme.spacing.md,
-  },
-  sectionTitle: {
-    ...theme.typography.subtitle,
-    fontWeight: 'bold',
-    color: theme.colors.text,
-  },
-  membersCount: {
-    ...theme.typography.caption,
-    color: theme.colors.primaryDark,
-    fontWeight: 'bold',
-    backgroundColor: theme.colors.primaryLight + '20',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  emptyText: {
-    ...theme.typography.body,
-    color: theme.colors.textSecondary,
-    textAlign: 'center',
-    paddingVertical: theme.spacing.lg,
-  },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: theme.spacing.md,
-    borderRadius: theme.borderRadius.lg,
-    marginBottom: theme.spacing.sm,
-    backgroundColor: theme.colors.inputBackground,
-  },
-  userRowSelected: {
-    backgroundColor: theme.colors.primaryLight + '15',
-    borderColor: theme.colors.primaryLight,
-    borderWidth: 1,
-  },
-  userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: theme.spacing.md,
-  },
-  userName: {
-    flex: 1,
-    ...theme.typography.body,
-  },
-  userNameSelected: {
-    fontWeight: 'bold',
-    color: theme.colors.primaryDark,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: theme.colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: theme.colors.primaryDark,
-    borderColor: theme.colors.primaryDark,
-  },
-  primaryButton: {
-    marginTop: theme.spacing.sm,
-    borderRadius: theme.borderRadius.lg,
-    overflow: 'hidden',
-    ...theme.shadows.md,
-  },
-  gradientButton: {
-    backgroundColor: theme.colors.primaryDark,
-    flexDirection: 'row',
-    padding: theme.spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-  },
+  container: { flexGrow: 1, padding: theme.spacing.lg, paddingBottom: theme.spacing.xxl, backgroundColor: theme.colors.background },
+  header: { alignItems: 'center', marginBottom: theme.spacing.xl },
+  title: { ...theme.typography.title },
+  subtitle: { ...theme.typography.subtitle, marginTop: theme.spacing.xs, textAlign: 'center' },
+  imagePicker: { alignSelf: 'center', marginBottom: theme.spacing.xl },
+  image: { width: 120, height: 120, borderRadius: 60, borderWidth: 4, borderColor: theme.colors.primaryLight },
+  imagePlaceholder: { width: 120, height: 120, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderStyle: 'dashed', borderColor: theme.colors.primaryLight, borderRadius: 60, backgroundColor: theme.colors.inputBackground },
+  imagePlaceholderText: { marginTop: theme.spacing.xs, color: theme.colors.primaryDark, fontWeight: '500' },
+  card: { marginBottom: theme.spacing.lg, padding: theme.spacing.lg, borderRadius: theme.borderRadius.xl, backgroundColor: theme.colors.card, ...theme.shadows.sm },
+  label: { ...theme.typography.caption, marginBottom: theme.spacing.sm, fontWeight: 'bold' },
+  input: { marginBottom: theme.spacing.md, padding: theme.spacing.lg, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.inputBackground, color: theme.colors.text, fontSize: 16 },
+  summary: { ...theme.typography.caption, marginBottom: theme.spacing.lg, color: theme.colors.primaryDark, fontWeight: 'bold' },
+  policyContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  policyOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.borderRadius.round, backgroundColor: theme.colors.inputBackground },
+  policyOptionActive: { borderColor: theme.colors.primaryDark, backgroundColor: theme.colors.primaryDark },
+  policyText: { ...theme.typography.caption, marginLeft: 6, color: theme.colors.text, fontWeight: '500' },
+  policyTextActive: { color: '#FFFFFF' },
+  sectionTitle: { ...theme.typography.subtitle, marginBottom: theme.spacing.md, color: theme.colors.text, fontWeight: 'bold' },
+  emptyText: { ...theme.typography.body, color: theme.colors.textSecondary, textAlign: 'center' },
+  userRow: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm, padding: theme.spacing.md, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.inputBackground },
+  userRowSelected: { borderWidth: 1, borderColor: theme.colors.primaryLight },
+  userAvatar: { width: 40, height: 40, marginRight: theme.spacing.md, borderRadius: 20 },
+  userName: { ...theme.typography.body, flex: 1 },
+  primaryButton: { alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.primaryDark, ...theme.shadows.md },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });

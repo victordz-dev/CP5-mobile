@@ -2,6 +2,9 @@ node_modules/
 .expo/
 dist/
 npm-debug.*
+firebase-debug.log
+database-debug.log
+firestore-debug.log
 *.jks
 *.p8
 *.p12
@@ -10,10 +13,11 @@ npm-debug.*
 *.orig.*
 web-build/
 
-# macOS
+/android/
+/ios/
+
 .DS_Store
 
-# Secrets
 .env
 .env.*
 !.env.example
@@ -24,6 +28,7 @@ server/.env.*
 !package.json
 !app.json
 !eas.json
+!firebase.json
 !tsconfig.json
 !firebaseConfig.json
 !google-services.json
@@ -32,4 +37,7 @@ server/.env.*
 !server/tsconfig.json
 !database.rules.json
 !firestore.rules
-!render.yaml
+
+expo-env.d.ts
+.firebase-rules-audit.md
+TESTE_LOCAL_E_BUILD_APK.md

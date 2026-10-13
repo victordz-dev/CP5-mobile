@@ -1,18 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseStorageEnvironment } from '../config/environment';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const supabasePublishableKey = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-const imageBucket = 'cp5-images';
+const maxImageBytes = 10 * 1024 * 1024;
+let storageClient: ReturnType<typeof createClient> | null = null;
 
-const supabase = supabaseUrl && supabasePublishableKey
-  ? createClient(supabaseUrl, supabasePublishableKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    })
-  : null;
+function getStorageClient() {
+  const environment = getSupabaseStorageEnvironment();
+  storageClient ??= createClient(environment.url, environment.publishableKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+  return { client: storageClient, bucket: environment.bucket };
+}
 
 const extensionByContentType: Record<string, string> = {
   'image/jpeg': 'jpg',
@@ -23,6 +25,9 @@ const extensionByContentType: Record<string, string> = {
 
 function buildObjectPath(path: string, contentType: string) {
   const safePath = path.replace(/[^a-zA-Z0-9/_-]/g, '');
+  if (!safePath || safePath.startsWith('/') || safePath.includes('..')) {
+    throw new Error('O destino da imagem é inválido.');
+  }
   const extension = extensionByContentType[contentType] ?? 'jpg';
   const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -30,9 +35,7 @@ function buildObjectPath(path: string, contentType: string) {
 }
 
 export const uploadImageAsync = async (uri: string, path: string): Promise<string> => {
-  if (!supabase) {
-    throw new Error('Configure EXPO_PUBLIC_SUPABASE_URL e EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY para enviar imagens.');
-  }
+  const { client, bucket } = getStorageClient();
 
   const response = await fetch(uri);
   const blob = await response.blob();
@@ -41,9 +44,12 @@ export const uploadImageAsync = async (uri: string, path: string): Promise<strin
   if (!contentType.startsWith('image/')) {
     throw new Error('Selecione um arquivo de imagem válido.');
   }
+  if (blob.size <= 0 || blob.size > maxImageBytes) {
+    throw new Error('A imagem deve ter no máximo 10 MB.');
+  }
 
   const objectPath = buildObjectPath(path, contentType);
-  const { error } = await supabase.storage.from(imageBucket).upload(
+  const { error } = await client.storage.from(bucket).upload(
     objectPath,
     await blob.arrayBuffer(),
     {
@@ -58,6 +64,9 @@ export const uploadImageAsync = async (uri: string, path: string): Promise<strin
     throw new Error('Não foi possível enviar a imagem. Tente novamente.');
   }
 
-  const { data } = supabase.storage.from(imageBucket).getPublicUrl(objectPath);
+  const { data } = client.storage.from(bucket).getPublicUrl(objectPath);
+  if (!data.publicUrl.startsWith('https://')) {
+    throw new Error('O armazenamento não retornou uma URL segura para a imagem.');
+  }
   return data.publicUrl;
 };

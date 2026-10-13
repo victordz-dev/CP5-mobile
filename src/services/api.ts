@@ -1,9 +1,5 @@
 import { auth } from './firebase';
-
-const DEFAULT_API_URL = 'https://cp5-mobile.onrender.com';
-
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL?.trim() || DEFAULT_API_URL)
-  .replace(/\/+$/, '');
+import { getApiBaseUrl } from '../config/environment';
 
 export async function authenticatedApiFetch(path: `/${string}`, init: RequestInit = {}): Promise<Response> {
   const currentUser = auth.currentUser;
@@ -17,7 +13,7 @@ export async function authenticatedApiFetch(path: `/${string}`, init: RequestIni
     headers.set('Content-Type', 'application/json');
   }
 
-  return fetch(`${API_URL}${path}`, { ...init, headers });
+  return fetch(`${getApiBaseUrl()}${path}`, { ...init, headers });
 }
 
 export async function readApiError(response: Response, fallback: string): Promise<string> {

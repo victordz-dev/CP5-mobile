@@ -1,18 +1,18 @@
 export const theme = {
   colors: {
-    primary: '#6366F1', // Indigo 500
-    primaryLight: '#818CF8', // Indigo 400
-    primaryDark: '#4F46E5', // Indigo 600
-    background: '#F9FAFB', // Gray 50
+    primary: '#6366F1',
+    primaryLight: '#818CF8',
+    primaryDark: '#4F46E5',
+    background: '#F9FAFB',
     card: '#FFFFFF',
-    text: '#111827', // Gray 900
-    textSecondary: '#6B7280', // Gray 500
-    border: '#E5E7EB', // Gray 200
-    error: '#EF4444', // Red 500
-    success: '#10B981', // Emerald 500
+    text: '#111827',
+    textSecondary: '#6B7280',
+    border: '#E5E7EB',
+    error: '#EF4444',
+    success: '#10B981',
     messageReceived: '#FFFFFF',
     messageSent: '#6366F1',
-    inputBackground: '#F3F4F6', // Gray 100
+    inputBackground: '#F3F4F6',
   },
   spacing: {
     xs: 4,

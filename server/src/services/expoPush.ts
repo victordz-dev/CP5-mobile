@@ -1,7 +1,6 @@
 import { isJsonObject } from '../domain/contracts';
+import { requireHttpsEnvironmentVariable } from '../config/environment';
 
-const EXPO_SEND_URL = 'https://exp.host/--/api/v2/push/send';
-const EXPO_RECEIPTS_URL = 'https://exp.host/--/api/v2/push/getReceipts';
 const PUSH_BATCH_SIZE = 100;
 
 export interface ExpoPushMessage {
@@ -71,7 +70,7 @@ export async function sendExpoPushMessages(messages: readonly ExpoPushMessage[])
 
   for (let offset = 0; offset < messages.length; offset += PUSH_BATCH_SIZE) {
     const chunk = messages.slice(offset, offset + PUSH_BATCH_SIZE);
-    const response = await fetch(EXPO_SEND_URL, {
+    const response = await fetch(requireHttpsEnvironmentVariable('EXPO_PUSH_SEND_URL'), {
       method: 'POST',
       headers: requestHeaders(),
       body: JSON.stringify(chunk),
@@ -95,7 +94,7 @@ export async function sendExpoPushMessages(messages: readonly ExpoPushMessage[])
 export async function getExpoPushReceipts(
   receiptIds: readonly string[],
 ): Promise<Record<string, ExpoPushReceipt>> {
-  const response = await fetch(EXPO_RECEIPTS_URL, {
+  const response = await fetch(requireHttpsEnvironmentVariable('EXPO_PUSH_RECEIPTS_URL'), {
     method: 'POST',
     headers: requestHeaders(),
     body: JSON.stringify({ ids: receiptIds }),

@@ -1,9 +1,13 @@
-import { View, ActivityIndicator } from 'react-native';
+import { Redirect } from 'expo-router';
+import { Loading } from '../components/Loading';
+import { useAuth } from '../hooks/useAuth';
 
 export default function IndexScreen() {
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <ActivityIndicator size="large" />
-    </View>
-  );
+  const { user, profile, loading } = useAuth();
+
+  if (loading) {
+    return <Loading message="Recuperando sua sessao..." />;
+  }
+
+  return <Redirect href={user && profile ? '/(main)/conversations' : '/(auth)/login'} />;
 }

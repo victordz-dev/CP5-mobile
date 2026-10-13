@@ -1,9 +1,14 @@
 import { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
+import { Alert } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
-import { registerForPushNotificationsAsync } from '../../services/notificationService';
+import {
+  parseNotificationConversationData,
+  registerForPushNotificationsAsync,
+} from '../../services/notificationService';
 
 import * as Notifications from 'expo-notifications';
+import { chatRoute } from '../../types/navigation';
 
 export default function MainLayout() {
   const { user } = useAuth();
@@ -12,26 +17,35 @@ export default function MainLayout() {
 
   useEffect(() => {
     if (user) {
-      registerForPushNotificationsAsync(user.uid).catch((err) => {
-        console.warn('Erro ao registrar push notifications', err);
-        // Removed alert so it doesn't loop just in case
+      registerForPushNotificationsAsync(user.uid).catch(() => {
+        Alert.alert(
+          'Notificações indisponíveis',
+          'Não foi possível registrar este aparelho. As mensagens continuam disponíveis dentro do aplicativo.',
+        );
       });
     }
   }, [user]);
 
   useEffect(() => {
     if (lastNotificationResponse) {
-      const data = lastNotificationResponse.notification.request.content.data;
-      if (data && data.conversationId) {
-        router.push(`/(main)/chat?id=${data.conversationId}&type=${data.conversationType}&name=${encodeURIComponent((data.name as string) || 'Chat')}`);
+      const data = parseNotificationConversationData(
+        lastNotificationResponse.notification.request.content.data,
+      );
+      if (data) {
+        router.push(chatRoute({
+          id: data.conversationId,
+          type: data.conversationType,
+          name: data.name,
+        }));
+        void Notifications.clearLastNotificationResponseAsync();
       }
     }
   }, [lastNotificationResponse, router]);
 
   const headerStyle = {
-    backgroundColor: '#FFFFFF', // theme.colors.card
+    backgroundColor: '#FFFFFF',
   };
-  const headerTintColor = '#111827'; // theme.colors.text
+  const headerTintColor = '#111827';
 
   return (
     <Stack
@@ -48,7 +62,7 @@ export default function MainLayout() {
         name="conversations" 
         options={{ 
           title: 'Conversas',
-          headerShown: false // Custom header inside conversations.tsx
+          headerShown: false
         }} 
       />
       <Stack.Screen name="users" options={{ title: 'Contatos' }} />

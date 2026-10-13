@@ -2,9 +2,10 @@
   "expo": {
     "name": "CP5",
     "slug": "CP5",
+    "description": "Chat individual e em grupo com Firebase e notificações push.",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app-icon-v2.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -15,22 +16,17 @@
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.victordz.cp5",
       "googleServicesFile": "./google-services.json",
-      "permissions": [
-        "android.permission.RECORD_AUDIO"
-      ],
       "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "EXPO_PUBLIC_API_URL": "https://cp5-mobile.onrender.com",
       "router": {},
       "eas": {
         "projectId": "f322b958-2225-42c5-b8cc-8d1ea929d49d"
@@ -41,13 +37,35 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "O aplicativo acessa suas fotos para permitir que você escolha uma imagem de perfil e do grupo."
+          "photosPermission": "O aplicativo acessa suas fotos para permitir que você escolha uma imagem de perfil e do grupo.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ],
       "expo-status-bar",
-      "expo-notifications"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#0B7CFF",
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#E6F4FE",
+          "image": "./assets/android-icon-foreground.png",
+          "imageWidth": 180,
+          "resizeMode": "contain"
+        }
+      ]
     ],
     "scheme": "cp5",
-    "owner": "victordz.dev"
+    "owner": "victordz.dev",
+    "experiments": {
+      "typedRoutes": true
+    }
   }
 }

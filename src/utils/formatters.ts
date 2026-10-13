@@ -1,7 +1,6 @@
 export const formatPhone = (text: string): string => {
   let cleaned = text.replace(/\D/g, '');
   
-  // Limita a 11 dígitos (tamanho máximo de celular no Brasil)
   if (cleaned.length > 11) {
     cleaned = cleaned.slice(0, 11);
   }
@@ -26,4 +25,21 @@ export const formatDate = (text: string): string => {
   if (cleaned.length <= 4) return `${cleaned.slice(0, 2)}/${cleaned.slice(2)}`;
   
   return `${cleaned.slice(0, 2)}/${cleaned.slice(2, 4)}/${cleaned.slice(4)}`;
+};
+
+export const isValidPhone = (value: string): boolean => value.replace(/\D/g, '').length >= 10;
+
+export const isValidBirthDate = (value: string): boolean => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!match) return false;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  const today = new Date();
+  return year >= 1900
+    && date.getFullYear() === year
+    && date.getMonth() === month - 1
+    && date.getDate() === day
+    && date <= today;
 };

@@ -1,74 +1,76 @@
-import { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { getAllUsers } from '../../services/userService';
+import { createDirectConversation } from '../../services/chatService';
 import { ChatUser } from '../../types/user';
+import { chatRoute } from '../../types/navigation';
 import { Loading } from '../../components/Loading';
 import { ErrorMessage } from '../../components/ErrorMessage';
-import { Avatar } from '../../components/Avatar';
-import { generateDirectConversationId, syncChatMembers } from '../../services/chatService';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { firestore } from '../../services/firebase';
+import { UserListItem } from '../../components/UserListItem';
 import { theme } from '../../theme';
-import { Ionicons } from '@expo/vector-icons';
 
 export default function UsersScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const [users, setUsers] = useState<ChatUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [startingChat, setStartingChat] = useState(false);
+  const [startingUserId, setStartingUserId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-
   const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let active = true;
     const loadUsers = async () => {
       try {
+        setLoading(true);
+        setError('');
         const allUsers = await getAllUsers();
-        // Exclude current user
-        setUsers(allUsers.filter(u => u.uid !== user?.uid));
+        if (active) {
+          setUsers(allUsers.filter((candidate) => candidate.uid !== user?.uid));
+        }
       } catch {
-        setError('Erro ao carregar usuários. Verifique sua conexão.');
+        if (active) setError('Erro ao carregar usuários. Verifique sua conexão.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
-    loadUsers();
-  }, [user]);
+    void loadUsers();
+    return () => {
+      active = false;
+    };
+  }, [reloadKey, user?.uid]);
 
-  const startChat = async (otherUser: ChatUser) => {
-    if (!user) return;
+  const startChat = useCallback(async (otherUser: ChatUser) => {
+    if (!user || otherUser.uid === user.uid) return;
     try {
-      setStartingChat(true);
-      const conversationId = generateDirectConversationId(user.uid, otherUser.uid);
-      
-      // Ensure direct conversation exists in Firestore
-      const convRef = doc(firestore, 'directConversations', conversationId);
-      const snap = await getDoc(convRef);
-      if (!snap.exists()) {
-        const now = new Date().getTime();
-        await setDoc(convRef, {
-          participantIds: [user.uid, otherUser.uid].sort(),
-          createdAt: now
-        });
-        await syncChatMembers(conversationId, 'direct');
-      }
-
-      router.replace(`/(main)/chat?id=${conversationId}&type=direct&name=${encodeURIComponent(otherUser.name)}&photoUrl=${encodeURIComponent(otherUser.photoUrl)}&otherUserId=${otherUser.uid}`);
-    } catch (err) {
-      console.error(err);
+      setStartingUserId(otherUser.uid);
+      setError('');
+      const conversationId = await createDirectConversation(otherUser.uid);
+      router.replace(chatRoute({
+        id: conversationId,
+        type: 'direct',
+        name: otherUser.name,
+        photoUrl: otherUser.photoUrl,
+        otherUserId: otherUser.uid,
+      }));
+    } catch {
       setError('Erro ao iniciar a conversa. Verifique sua conexão.');
     } finally {
-      setStartingChat(false);
+      setStartingUserId(null);
     }
-  };
+  }, [router, user]);
 
-  const filteredUsers = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()));
+  const normalizedSearch = search.trim().toLocaleLowerCase('pt-BR');
+  const filteredUsers = useMemo(() => users.filter((candidate) => (
+    candidate.name.toLocaleLowerCase('pt-BR').includes(normalizedSearch)
+    || candidate.email.toLocaleLowerCase('pt-BR').includes(normalizedSearch)
+  )), [normalizedSearch, users]);
 
-  if (loading || startingChat) return <Loading />;
-  if (error) return <View style={styles.container}><ErrorMessage message={error} /></View>;
+  if (loading) return <Loading message="Carregando usuários..." />;
 
   return (
     <View style={styles.container}>
@@ -76,97 +78,63 @@ export default function UsersScreen() {
         <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Buscar contatos..."
+          placeholder="Buscar por nome ou e-mail..."
           placeholderTextColor={theme.colors.textSecondary}
           value={search}
           onChangeText={setSearch}
+          autoCapitalize="none"
         />
       </View>
+
+      <ErrorMessage message={error} onRetry={() => setReloadKey((value) => value + 1)} />
+
       <FlatList
         data={filteredUsers}
-        keyExtractor={item => item.uid}
+        keyExtractor={(item) => item.uid}
         contentContainerStyle={styles.listContainer}
+        keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={theme.colors.border} />
-            <Text style={styles.emptyText}>Nenhum usuário encontrado.</Text>
+            <Text style={styles.emptyText}>
+              {search.trim() ? 'Nenhum usuário corresponde à busca.' : 'Nenhum outro usuário disponível.'}
+            </Text>
           </View>
         }
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.item} onPress={() => startChat(item)} activeOpacity={0.7}>
-            <Avatar uri={item.photoUrl} style={styles.avatar} />
-            <View style={styles.itemContent}>
-              <Text style={styles.name}>{item.name}</Text>
-              {item.phoneNumber && <Text style={styles.phone}>{item.phoneNumber}</Text>}
-            </View>
-            <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.colors.primaryLight} />
-          </TouchableOpacity>
+          <UserListItem
+            user={item}
+            subtitle={item.email || 'E-mail não informado'}
+            onPress={startChat}
+            action={startingUserId === item.uid
+              ? <LoadingIndicator />
+              : <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.colors.primaryLight} />}
+          />
         )}
       />
     </View>
   );
 }
 
+function LoadingIndicator() {
+  return <Ionicons name="hourglass-outline" size={24} color={theme.colors.primaryDark} />;
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.inputBackground,
     margin: theme.spacing.lg,
     paddingHorizontal: theme.spacing.md,
-    borderRadius: theme.borderRadius.xl,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.xl,
+    backgroundColor: theme.colors.inputBackground,
   },
-  searchIcon: {
-    marginRight: theme.spacing.sm,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: theme.spacing.md,
-    fontSize: 16,
-    color: theme.colors.text,
-  },
-  listContainer: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingBottom: theme.spacing.xl,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.card,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    borderRadius: theme.borderRadius.lg,
-    ...theme.shadows.sm,
-  },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    marginRight: theme.spacing.md,
-  },
-  itemContent: {
-    flex: 1,
-  },
-  name: {
-    ...theme.typography.body,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  phone: {
-    ...theme.typography.caption,
-  },
-  emptyState: {
-    alignItems: 'center',
-    marginTop: theme.spacing.xxl,
-  },
-  emptyText: {
-    ...theme.typography.subtitle,
-    marginTop: theme.spacing.md,
-  },
+  searchIcon: { marginRight: theme.spacing.sm },
+  searchInput: { flex: 1, paddingVertical: theme.spacing.md, fontSize: 16, color: theme.colors.text },
+  listContainer: { flexGrow: 1, paddingHorizontal: theme.spacing.lg, paddingBottom: theme.spacing.xl },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: theme.spacing.xxl },
+  emptyText: { ...theme.typography.subtitle, marginTop: theme.spacing.md, textAlign: 'center' },
 });

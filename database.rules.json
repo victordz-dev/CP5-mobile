@@ -1,5 +1,7 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
     "chat_members": {
       "$conversationId": {
         ".read": false,
@@ -8,14 +10,49 @@
     },
     "messages": {
       "$conversationId": {
-        ".read": "root.child('chat_members').child($conversationId).child(auth.uid).val() === true",
+        ".read": "auth != null && root.child('chat_members').child($conversationId).child(auth.uid).val() === true",
+        ".indexOn": ["createdAt"],
         "$messageId": {
-          ".write": "root.child('chat_members').child($conversationId).child(auth.uid).val() === true && !data.exists()",
-          ".validate": "newData.hasChildren(['id', 'conversationId', 'conversationType', 'senderId', 'text', 'target', 'createdAt']) && newData.child('id').val() === $messageId && newData.child('createdAt').isNumber() && newData.child('senderId').val() === auth.uid && newData.child('conversationId').val() === $conversationId && newData.child('text').isString() && newData.child('text').val().length > 0 && (newData.child('conversationType').val() === 'direct' || newData.child('conversationType').val() === 'group') && (newData.child('target/type').val() === 'conversation' || (newData.child('target/type').val() === 'member' && newData.child('target/memberId').isString())) && (!newData.child('target/memberId').exists() || root.child('chat_members').child($conversationId).child(newData.child('target/memberId').val()).val() === true) && !newData.child('pushSent').exists() && (!newData.hasChild('mentionedUserIds') || newData.child('mentionedUserIds').hasChildren())",
-          "mentionedUserIds": {
-            "$index": {
-              ".validate": "newData.isString() && root.child('chat_members').child($conversationId).child(newData.val()).val() === true"
+          ".write": "auth != null && root.child('chat_members').child($conversationId).child(auth.uid).val() === true && !data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['id', 'conversationId', 'conversationType', 'senderId', 'text', 'target', 'createdAt']) && !newData.child('pushSent').exists()",
+          "id": {
+            ".validate": "newData.isString() && newData.val() === $messageId && newData.val().length > 0 && newData.val().length <= 1500"
+          },
+          "conversationId": {
+            ".validate": "newData.isString() && newData.val() === $conversationId && newData.val().length > 0 && newData.val().length <= 1500"
+          },
+          "conversationType": {
+            ".validate": "newData.val() === 'direct' || newData.val() === 'group'"
+          },
+          "senderId": {
+            ".validate": "newData.isString() && newData.val() === auth.uid && newData.val().length > 0 && newData.val().length <= 128"
+          },
+          "text": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 10000"
+          },
+          "target": {
+            ".validate": "newData.hasChild('type') && ((newData.child('type').val() === 'conversation' && !newData.hasChild('memberId')) || (newData.child('type').val() === 'member' && newData.hasChild('memberId')))",
+            "type": {
+              ".validate": "newData.val() === 'conversation' || newData.val() === 'member'"
+            },
+            "memberId": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 128 && root.child('chat_members').child($conversationId).child(newData.val()).val() === true"
+            },
+            "$other": {
+              ".validate": false
             }
+          },
+          "mentionedUserIds": {
+            ".validate": "newData.hasChildren()",
+            "$index": {
+              ".validate": "$index.matches(/^(0|[1-9][0-9]?)$/) && newData.isString() && newData.val().length > 0 && newData.val().length <= 128 && root.child('chat_members').child($conversationId).child(newData.val()).val() === true"
+            }
+          },
+          "createdAt": {
+            ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= now + 60000"
+          },
+          "$other": {
+            ".validate": false
           }
         }
       }

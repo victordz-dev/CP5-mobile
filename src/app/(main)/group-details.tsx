@@ -1,20 +1,20 @@
-import { type ComponentProps, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
+import { type ComponentProps, useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { firestore } from '../../services/firebase';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { useAuth } from '../../hooks/useAuth';
+import { addMember, leaveGroup, listenToGroup, removeMember, updateGroupConfig } from '../../services/groupService';
+import { getAllUsers } from '../../services/userService';
+import { uploadImageAsync } from '../../services/storageService';
 import { ChatGroup, NotificationPolicy } from '../../types/group';
 import { ChatUser } from '../../types/user';
-import { useAuth } from '../../hooks/useAuth';
-import { updateGroupConfig, removeMember, leaveGroup, addMember } from '../../services/groupService';
-import { getAllUsers } from '../../services/userService';
+import { GroupDetailsRouteParams, profileRoute } from '../../types/navigation';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { Loading } from '../../components/Loading';
-import * as ImagePicker from 'expo-image-picker';
-import { uploadImageAsync } from '../../services/storageService';
 import { Avatar } from '../../components/Avatar';
+import { UserListItem } from '../../components/UserListItem';
 import { theme } from '../../theme';
-import { Ionicons } from '@expo/vector-icons';
 
 const notificationPolicyOptions: readonly {
   id: NotificationPolicy;
@@ -24,277 +24,281 @@ const notificationPolicyOptions: readonly {
   { id: 'all_group_messages', label: 'Todas as mensagens', icon: 'notifications' },
   { id: 'mentioned_members', label: 'Apenas menções', icon: 'at' },
   { id: 'direct_messages_only', label: 'Apenas diretas', icon: 'chatbubble' },
-  { id: 'disabled', label: 'Silenciado', icon: 'notifications-off' },
+  { id: 'disabled', label: 'Desativadas', icon: 'notifications-off' },
 ];
 
 export default function GroupDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<GroupDetailsRouteParams>();
   const { user } = useAuth();
   const router = useRouter();
-  
   const [group, setGroup] = useState<ChatGroup | null>(null);
-  const [members, setMembers] = useState<ChatUser[]>([]);
   const [allUsers, setAllUsers] = useState<ChatUser[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [groupLoading, setGroupLoading] = useState(true);
+  const [usersLoading, setUsersLoading] = useState(true);
   const [error, setError] = useState('');
-  
-  // Edit states
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editLimit, setEditLimit] = useState('');
   const [editPolicy, setEditPolicy] = useState<NotificationPolicy>('all_group_messages');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [operation, setOperation] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
-    const unsubscribe = onSnapshot(doc(firestore, 'groups', id), async (snap) => {
-      if (snap.exists()) {
-        const g = { id: snap.id, ...snap.data() } as ChatGroup;
-        setGroup(g);
-        setEditName(curr => curr === '' ? g.name : curr);
-        setEditLimit(curr => curr === '' ? g.memberLimit.toString() : curr);
-        setEditPolicy(curr => curr === 'all_group_messages' ? (g.notificationPolicy || 'all_group_messages') : curr);
-        
-        try {
-          const users = await getAllUsers();
-          setAllUsers(users);
-          setMembers(users.filter(u => g.memberIds.includes(u.uid)));
-        } catch {}
-        setLoading(false);
-      } else {
-        setError('Grupo não encontrado');
-        setLoading(false);
-      }
-    }, (err) => {
-      setError('Erro ao carregar.');
-      setLoading(false);
+    const unsubscribe = listenToGroup(id, (nextGroup) => {
+      setGroup(nextGroup);
+      setGroupLoading(false);
+      if (!nextGroup) setError('Grupo não encontrado ou acesso removido.');
+    }, () => {
+      setError('Não foi possível acompanhar as alterações do grupo.');
+      setGroupLoading(false);
     });
-
-    return () => unsubscribe();
+    return unsubscribe;
   }, [id]);
 
-  if (loading) return <Loading />;
-  if (error || !group) return <View style={styles.container}><ErrorMessage message={error} /></View>;
+  useEffect(() => {
+    let active = true;
+    getAllUsers().then((users) => {
+      if (active) setAllUsers(users);
+    }).catch(() => {
+      if (active) setError('Não foi possível carregar os perfis dos integrantes.');
+    }).finally(() => {
+      if (active) setUsersLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  const isOwner = user?.uid === group.ownerId;
-  const vagas = group.memberLimit - group.memberIds.length;
+  const memberIdSet = useMemo(() => new Set(group?.memberIds ?? []), [group?.memberIds]);
+  const members = useMemo(
+    () => allUsers.filter((candidate) => memberIdSet.has(candidate.uid)),
+    [allUsers, memberIdSet],
+  );
+  const availableUsers = useMemo(
+    () => allUsers.filter((candidate) => !memberIdSet.has(candidate.uid)),
+    [allUsers, memberIdSet],
+  );
+  const isOwner = Boolean(group && user?.uid === group.ownerId);
+  const vacancies = group ? Math.max(group.memberLimit - group.memberIds.length, 0) : 0;
 
-  const pickImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permissionResult.granted === false) {
-      setError("Permissão para acessar a galeria é necessária!");
+  const beginEditing = useCallback(() => {
+    if (!group || !isOwner) return;
+    setEditName(group.name);
+    setEditLimit(String(group.memberLimit));
+    setEditPolicy(group.notificationPolicy);
+    setPhotoUri(null);
+    setError('');
+    setEditing(true);
+  }, [group, isOwner]);
+
+  const pickImage = useCallback(async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError('Permissão da galeria negada. Ative-a nas configurações do aparelho.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3,
+      });
+      if (!result.canceled) setPhotoUri(result.assets[0].uri);
+    } catch {
+      setError('Não foi possível abrir a galeria.');
+    }
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!group || !isOwner) return;
+    if (!editName.trim()) {
+      setError('O nome do grupo é obrigatório.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.3,
-    });
-    if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri);
+    if (!/^\d+$/.test(editLimit)) {
+      setError('O limite deve ser um número inteiro.');
+      return;
     }
-  };
+    const memberLimit = Number(editLimit);
+    if (memberLimit < group.memberIds.length) {
+      setError('O limite não pode ser menor que a quantidade atual de integrantes.');
+      return;
+    }
 
-  const handleSave = async () => {
     try {
-      setLoading(true);
-      let photoUrl = group.photoUrl;
-      if (photoUri) {
-        photoUrl = await uploadImageAsync(photoUri, `groups/${group.id}`);
-      }
-      
-      if (!/^\d+$/.test(editLimit)) {
-        throw new Error('O limite de membros deve ser estritamente numérico.');
-      }
-      const newLimit = Number(editLimit);
-      if (newLimit < group.memberIds.length) {
-        throw new Error('Limite menor que a quantidade atual de membros.');
-      }
-
+      setOperation('save');
+      setError('');
+      const photoUrl = photoUri
+        ? await uploadImageAsync(photoUri, `groups/${group.id}`)
+        : group.photoUrl;
       await updateGroupConfig(group.id, {
-        name: editName,
+        name: editName.trim(),
         photoUrl,
-        memberLimit: newLimit,
-        notificationPolicy: editPolicy
+        memberLimit,
+        notificationPolicy: editPolicy,
       });
-      
-      setGroup({ ...group, name: editName, photoUrl, memberLimit: newLimit, notificationPolicy: editPolicy });
       setEditing(false);
+      setPhotoUri(null);
     } catch {
-      setError('Erro ao salvar as configurações.');
+      setError('Não foi possível salvar as configurações do grupo.');
     } finally {
-      setLoading(false);
+      setOperation(null);
     }
-  };
+  }, [editLimit, editName, editPolicy, group, isOwner, photoUri]);
 
-  const handleAddMember = async (userId: string) => {
-    if (vagas <= 0) return alert('Sem vagas');
+  const handleAddMember = useCallback(async (candidate: ChatUser) => {
+    if (!group || !isOwner) return;
+    if (vacancies <= 0) {
+      setError('O grupo está sem vagas. Aumente o limite antes de adicionar alguém.');
+      return;
+    }
     try {
-      await addMember(group.id, userId);
-      const m = allUsers.find(u => u.uid === userId);
-      if (m) {
-        setMembers([...members, m]);
-        setGroup({ ...group, memberIds: [...group.memberIds, userId] });
-      }
+      setOperation(`add:${candidate.uid}`);
+      setError('');
+      await addMember(group.id, candidate.uid);
     } catch {
-      alert('Não foi possível adicionar o membro.');
+      setError('Não foi possível adicionar o integrante. A vaga pode ter sido ocupada simultaneamente.');
+    } finally {
+      setOperation(null);
     }
-  };
+  }, [group, isOwner, vacancies]);
 
-  const handleRemoveMember = async (userId: string) => {
+  const handleRemoveMember = useCallback(async (candidate: ChatUser) => {
+    if (!group || !isOwner || candidate.uid === group.ownerId) return;
     if (group.memberIds.length <= 2) {
-      return alert('O grupo deve ter no mínimo 2 membros.');
+      setError('O grupo deve permanecer com no mínimo dois integrantes.');
+      return;
     }
     try {
-      await removeMember(group.id, userId);
-      setMembers(members.filter(m => m.uid !== userId));
-      setGroup({ ...group, memberIds: group.memberIds.filter(id => id !== userId) });
+      setOperation(`remove:${candidate.uid}`);
+      setError('');
+      await removeMember(group.id, candidate.uid);
     } catch {
-      alert('Erro ao remover');
+      setError('Não foi possível remover o integrante.');
+    } finally {
+      setOperation(null);
     }
-  };
+  }, [group, isOwner]);
 
-  const getPolicyName = (policy: string) => {
-    switch(policy) {
-      case 'all_group_messages': return 'Todas as mensagens';
-      case 'mentioned_members': return 'Apenas menções';
-      case 'direct_messages_only': return 'Apenas diretas';
-      case 'disabled': return 'Silenciado';
-      default: return policy;
+  const handleLeave = useCallback(async () => {
+    if (!group || !user || isOwner) return;
+    if (group.memberIds.length <= 2) {
+      setError('Não é possível sair: o grupo precisa manter no mínimo dois integrantes.');
+      return;
     }
-  };
+    try {
+      setOperation('leave');
+      setError('');
+      await leaveGroup(group.id, user.uid);
+      router.replace('/(main)/conversations');
+    } catch {
+      setError('Não foi possível sair do grupo.');
+      setOperation(null);
+    }
+  }, [group, isOwner, router, user]);
+
+  const openProfile = useCallback((candidate: ChatUser) => {
+    router.push(profileRoute({ userId: candidate.uid }));
+  }, [router]);
+
+  if (!id) return <View style={styles.container}><ErrorMessage message="Grupo inválido." /></View>;
+  if (groupLoading || usersLoading) return <Loading message="Carregando grupo..." />;
+  if (!group) return <View style={styles.container}><ErrorMessage message={error || 'Grupo indisponível.'} /></View>;
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-      {!editing ? (
+    <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ErrorMessage message={error} />
+
+      {editing ? (
+        <View style={styles.content}>
+          <TouchableOpacity style={styles.imagePicker} onPress={pickImage} disabled={operation !== null}>
+            <Avatar uri={photoUri || group.photoUrl} style={styles.mainAvatar} />
+            <View style={styles.editBadge}><Ionicons name="camera" size={14} color="#FFFFFF" /></View>
+          </TouchableOpacity>
+          <Text style={styles.label}>Nome do grupo</Text>
+          <TextInput style={styles.input} value={editName} onChangeText={setEditName} maxLength={80} editable={operation === null} />
+          <Text style={styles.label}>Limite de integrantes</Text>
+          <TextInput style={styles.input} value={editLimit} onChangeText={setEditLimit} keyboardType="number-pad" editable={operation === null} />
+          <Text style={styles.helper}>{group.memberIds.length} integrantes atuais • {Math.max(Number(editLimit) - group.memberIds.length, 0) || 0} vagas após salvar</Text>
+          <Text style={styles.sectionTitle}>Política de notificações</Text>
+          <View style={styles.policyContainer}>
+            {notificationPolicyOptions.map((option) => (
+              <TouchableOpacity key={option.id} style={[styles.policyOption, editPolicy === option.id && styles.policyOptionActive]} onPress={() => setEditPolicy(option.id)} disabled={operation !== null}>
+                <Ionicons name={option.icon} size={18} color={editPolicy === option.id ? '#FFFFFF' : theme.colors.primaryDark} />
+                <Text style={[styles.policyText, editPolicy === option.id && styles.policyTextActive]}>{option.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleSave} disabled={operation !== null}>
+            {operation === 'save' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>Salvar alterações</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => setEditing(false)} disabled={operation !== null}>
+            <Text style={styles.secondaryButtonText}>Cancelar</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
         <View style={styles.content}>
           <View style={styles.headerSection}>
             <Avatar uri={group.photoUrl} style={styles.mainAvatar} />
             <Text style={styles.title}>{group.name}</Text>
-            
-            <View style={styles.statsContainer}>
-              <View style={styles.statBox}>
-                <Ionicons name="people" size={24} color={theme.colors.primaryDark} />
-                <Text style={styles.statValue}>{group.memberIds.length} / {group.memberLimit}</Text>
-                <Text style={styles.statLabel}>Membros</Text>
-              </View>
-              <View style={styles.statBox}>
-                <Ionicons name="person-add" size={24} color={theme.colors.success} />
-                <Text style={[styles.statValue, { color: theme.colors.success }]}>{vagas}</Text>
-                <Text style={styles.statLabel}>Vagas</Text>
-              </View>
-            </View>
-            
-            <View style={styles.infoBadge}>
-              <Ionicons name="notifications" size={16} color={theme.colors.textSecondary} />
-              <Text style={styles.infoText}>Notificações: {getPolicyName(group.notificationPolicy || 'all_group_messages')}</Text>
-            </View>
+            <Text style={styles.stats}>{group.memberIds.length} / {group.memberLimit} integrantes • {vacancies} vagas</Text>
+            <Text style={styles.helper}>Notificações: {notificationPolicyOptions.find((option) => option.id === group.notificationPolicy)?.label}</Text>
           </View>
 
           {isOwner && (
-            <TouchableOpacity style={styles.primaryButton} onPress={() => setEditing(true)}>
-              <Ionicons name="settings-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.primaryButtonText}>Configurações do Grupo</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={beginEditing}>
+              <Ionicons name="settings-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.primaryButtonText}>Configurações do grupo</Text>
             </TouchableOpacity>
           )}
-          
+
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Membros do Grupo</Text>
-            {members.map(m => (
-              <TouchableOpacity key={m.uid} style={styles.userRow} activeOpacity={0.7} onPress={() => router.push(`/(main)/profile?userId=${m.uid}`)}>
-                <Avatar uri={m.photoUrl} style={styles.smallAvatar} />
-                <View style={styles.userInfo}>
-                  <Text style={styles.userName}>{m.name}</Text>
-                  {m.uid === group.ownerId && <Text style={styles.ownerBadge}>Dono</Text>}
-                </View>
-                {isOwner && m.uid !== group.ownerId && (
-                  <TouchableOpacity style={styles.actionIconButton} onPress={() => handleRemoveMember(m.uid)}>
-                    <Ionicons name="person-remove" size={20} color={theme.colors.error} />
+            <Text style={styles.sectionTitle}>Integrantes ({group.memberIds.length})</Text>
+            {members.map((member) => (
+              <UserListItem
+                key={member.uid}
+                user={member}
+                subtitle={member.uid === group.ownerId ? 'Proprietário' : 'Integrante'}
+                onPress={openProfile}
+                action={isOwner && member.uid !== group.ownerId ? (
+                  <TouchableOpacity accessibilityLabel={`Remover ${member.name}`} style={styles.actionButton} onPress={() => handleRemoveMember(member)} disabled={operation !== null}>
+                    {operation === `remove:${member.uid}` ? <ActivityIndicator color={theme.colors.error} /> : <Ionicons name="person-remove" size={20} color={theme.colors.error} />}
                   </TouchableOpacity>
-                )}
-              </TouchableOpacity>
+                ) : undefined}
+              />
             ))}
           </View>
 
-          {isOwner && vagas > 0 && (
+          {isOwner && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Adicionar Membros</Text>
-              {allUsers.filter(u => !group.memberIds.includes(u.uid)).map(m => (
-                <TouchableOpacity key={m.uid} style={styles.userRow} activeOpacity={0.7} onPress={() => router.push(`/(main)/profile?userId=${m.uid}`)}>
-                  <Avatar uri={m.photoUrl} style={styles.smallAvatar} />
-                  <View style={styles.userInfo}>
-                    <Text style={styles.userName}>{m.name}</Text>
-                  </View>
-                  <TouchableOpacity style={[styles.actionIconButton, { backgroundColor: theme.colors.primaryLight + '20' }]} onPress={() => handleAddMember(m.uid)}>
-                    <Ionicons name="person-add" size={20} color={theme.colors.primaryDark} />
-                  </TouchableOpacity>
-                </TouchableOpacity>
+              <Text style={styles.sectionTitle}>Adicionar integrantes</Text>
+              {vacancies === 0 ? (
+                <Text style={styles.emptyText}>Grupo sem vagas. Aumente o limite nas configurações.</Text>
+              ) : availableUsers.length === 0 ? (
+                <Text style={styles.emptyText}>Nenhum usuário disponível para adicionar.</Text>
+              ) : availableUsers.map((candidate) => (
+                <UserListItem
+                  key={candidate.uid}
+                  user={candidate}
+                  subtitle={`${vacancies} vaga${vacancies === 1 ? '' : 's'} disponível${vacancies === 1 ? '' : 'is'}`}
+                  onPress={openProfile}
+                  action={(
+                    <TouchableOpacity accessibilityLabel={`Adicionar ${candidate.name}`} style={styles.actionButton} onPress={() => handleAddMember(candidate)} disabled={operation !== null}>
+                      {operation === `add:${candidate.uid}` ? <ActivityIndicator color={theme.colors.primaryDark} /> : <Ionicons name="person-add" size={20} color={theme.colors.primaryDark} />}
+                    </TouchableOpacity>
+                  )}
+                />
               ))}
             </View>
           )}
 
           {!isOwner && (
-            <TouchableOpacity style={styles.dangerButton} onPress={async () => {
-              if(group.memberIds.length <= 2) return alert('Impossível sair, mínimo 2 membros.');
-              try {
-                await leaveGroup(group.id, user!.uid);
-                router.replace('/(main)/conversations');
-              } catch {
-                alert('Erro ao sair do grupo');
-              }
-            }}>
-              <Ionicons name="exit-outline" size={20} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.primaryButtonText}>Sair do Grupo</Text>
+            <TouchableOpacity style={styles.dangerButton} onPress={handleLeave} disabled={operation !== null}>
+              {operation === 'leave' ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>Sair do grupo</Text>}
             </TouchableOpacity>
           )}
-        </View>
-      ) : (
-        <View style={styles.content}>
-          <TouchableOpacity style={styles.imagePicker} onPress={pickImage} activeOpacity={0.8}>
-            {photoUri || group.photoUrl ? (
-              <Avatar uri={photoUri || group.photoUrl} style={styles.mainAvatar} />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <Ionicons name="camera" size={32} color={theme.colors.primaryDark} />
-                <Text style={styles.imagePlaceholderText}>Mudar Foto</Text>
-              </View>
-            )}
-            <View style={styles.editBadge}>
-              <Ionicons name="camera" size={14} color="#FFF" />
-            </View>
-          </TouchableOpacity>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Nome do Grupo</Text>
-            <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Nome" placeholderTextColor={theme.colors.textSecondary} />
-          </View>
-          
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Limite de Membros</Text>
-            <TextInput style={styles.input} value={editLimit} onChangeText={setEditLimit} placeholder="Ex: 10" keyboardType="numeric" placeholderTextColor={theme.colors.textSecondary} />
-          </View>
-          
-          <Text style={styles.sectionTitle}>Política de Notificações</Text>
-          <View style={styles.policyContainer}>
-            {notificationPolicyOptions.map((policy) => (
-              <TouchableOpacity 
-                key={policy.id}
-                style={[styles.policyOption, editPolicy === policy.id && styles.policyOptionActive]}
-                onPress={() => setEditPolicy(policy.id)}
-              >
-                <Ionicons name={policy.icon} size={20} color={editPolicy === policy.id ? '#FFF' : theme.colors.primaryDark} />
-                <Text style={[styles.policyText, editPolicy === policy.id && styles.policyTextActive]}>{policy.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <TouchableOpacity style={[styles.primaryButton, { marginTop: theme.spacing.xl }]} onPress={handleSave}>
-            <Text style={styles.primaryButtonText}>Salvar Alterações</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => setEditing(false)}>
-            <Text style={styles.secondaryButtonText}>Cancelar</Text>
-          </TouchableOpacity>
         </View>
       )}
     </ScrollView>
@@ -302,229 +306,30 @@ export default function GroupDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  scrollContent: {
-    paddingBottom: theme.spacing.xxl,
-  },
-  content: {
-    padding: theme.spacing.lg,
-  },
-  headerSection: {
-    alignItems: 'center',
-    marginBottom: theme.spacing.xl,
-    backgroundColor: theme.colors.card,
-    padding: theme.spacing.xl,
-    borderRadius: theme.borderRadius.xl,
-    ...theme.shadows.sm,
-  },
-  mainAvatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: theme.spacing.md,
-    borderWidth: 4,
-    borderColor: theme.colors.background,
-  },
-  title: {
-    ...theme.typography.title,
-    textAlign: 'center',
-    marginBottom: theme.spacing.lg,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: theme.spacing.xl,
-    marginBottom: theme.spacing.lg,
-  },
-  statBox: {
-    alignItems: 'center',
-  },
-  statValue: {
-    ...theme.typography.title,
-    fontSize: 24,
-    color: theme.colors.text,
-    marginTop: 4,
-  },
-  statLabel: {
-    ...theme.typography.caption,
-    marginTop: 2,
-  },
-  infoBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.inputBackground,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.round,
-  },
-  infoText: {
-    ...theme.typography.caption,
-    marginLeft: 4,
-  },
-  section: {
-    marginTop: theme.spacing.lg,
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.borderRadius.xl,
-    padding: theme.spacing.md,
-    ...theme.shadows.sm,
-  },
-  sectionTitle: {
-    ...theme.typography.subtitle,
-    fontWeight: 'bold',
-    marginBottom: theme.spacing.md,
-    paddingHorizontal: theme.spacing.sm,
-  },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: theme.spacing.md,
-    borderBottomWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  smallAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    marginRight: theme.spacing.md,
-  },
-  userInfo: {
-    flex: 1,
-  },
-  userName: {
-    ...theme.typography.body,
-    fontWeight: 'bold',
-  },
-  ownerBadge: {
-    ...theme.typography.caption,
-    color: theme.colors.primaryDark,
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  actionIconButton: {
-    padding: theme.spacing.sm,
-    backgroundColor: theme.colors.error + '20',
-    borderRadius: theme.borderRadius.round,
-  },
-  primaryButton: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.primaryDark,
-    padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: theme.spacing.sm,
-    ...theme.shadows.md,
-  },
-  primaryButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  dangerButton: {
-    flexDirection: 'row',
-    backgroundColor: theme.colors.error,
-    padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: theme.spacing.xl,
-    ...theme.shadows.md,
-  },
-  secondaryButton: {
-    padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: theme.spacing.sm,
-  },
-  secondaryButtonText: {
-    color: theme.colors.error,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  formGroup: {
-    marginBottom: theme.spacing.lg,
-  },
-  label: {
-    ...theme.typography.caption,
-    fontWeight: 'bold',
-    marginBottom: theme.spacing.sm,
-    marginLeft: theme.spacing.sm,
-  },
-  input: {
-    backgroundColor: theme.colors.inputBackground,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    padding: theme.spacing.lg,
-    borderRadius: theme.borderRadius.lg,
-    fontSize: 16,
-    color: theme.colors.text,
-  },
-  imagePicker: {
-    alignSelf: 'center',
-    marginBottom: theme.spacing.xl,
-    position: 'relative',
-  },
-  imagePlaceholder: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: theme.colors.inputBackground,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: theme.colors.primaryLight,
-    borderStyle: 'dashed',
-  },
-  imagePlaceholderText: {
-    color: theme.colors.primaryDark,
-    fontSize: 14,
-    fontWeight: '500',
-    marginTop: 4,
-  },
-  editBadge: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: theme.colors.primaryDark,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
-  policyContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.sm,
-  },
-  policyOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.inputBackground,
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.borderRadius.round,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  policyOptionActive: {
-    backgroundColor: theme.colors.primaryDark,
-    borderColor: theme.colors.primaryDark,
-  },
-  policyText: {
-    ...theme.typography.caption,
-    color: theme.colors.text,
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  policyTextActive: {
-    color: '#FFF',
-  },
+  container: { flex: 1, justifyContent: 'center', padding: theme.spacing.lg, backgroundColor: theme.colors.background },
+  scrollContent: { flexGrow: 1, paddingBottom: theme.spacing.xxl, backgroundColor: theme.colors.background },
+  content: { padding: theme.spacing.lg },
+  headerSection: { alignItems: 'center', marginBottom: theme.spacing.lg, padding: theme.spacing.xl, borderRadius: theme.borderRadius.xl, backgroundColor: theme.colors.card, ...theme.shadows.sm },
+  mainAvatar: { width: 120, height: 120, marginBottom: theme.spacing.md, borderRadius: 60 },
+  title: { ...theme.typography.title, textAlign: 'center', marginBottom: theme.spacing.sm },
+  stats: { ...theme.typography.body, color: theme.colors.primaryDark, fontWeight: 'bold' },
+  helper: { ...theme.typography.caption, marginVertical: theme.spacing.sm, textAlign: 'center' },
+  section: { marginTop: theme.spacing.lg, padding: theme.spacing.md, borderRadius: theme.borderRadius.xl, backgroundColor: theme.colors.card, ...theme.shadows.sm },
+  sectionTitle: { ...theme.typography.subtitle, marginBottom: theme.spacing.md, color: theme.colors.text, fontWeight: 'bold' },
+  emptyText: { ...theme.typography.body, padding: theme.spacing.md, color: theme.colors.textSecondary, textAlign: 'center' },
+  actionButton: { padding: theme.spacing.sm, borderRadius: theme.borderRadius.round, backgroundColor: theme.colors.inputBackground },
+  primaryButton: { flexDirection: 'row', gap: theme.spacing.sm, alignItems: 'center', justifyContent: 'center', marginTop: theme.spacing.sm, padding: theme.spacing.lg, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.primaryDark, ...theme.shadows.md },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  dangerButton: { alignItems: 'center', justifyContent: 'center', marginTop: theme.spacing.xl, padding: theme.spacing.lg, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.error },
+  secondaryButton: { alignItems: 'center', padding: theme.spacing.lg },
+  secondaryButtonText: { color: theme.colors.error, fontSize: 16, fontWeight: 'bold' },
+  imagePicker: { alignSelf: 'center', position: 'relative', marginBottom: theme.spacing.xl },
+  editBadge: { position: 'absolute', right: 0, bottom: theme.spacing.md, width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 16, backgroundColor: theme.colors.primaryDark },
+  label: { ...theme.typography.caption, marginBottom: theme.spacing.sm, fontWeight: 'bold' },
+  input: { marginBottom: theme.spacing.lg, padding: theme.spacing.lg, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.inputBackground, color: theme.colors.text, fontSize: 16 },
+  policyContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
+  policyOption: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.borderRadius.round, backgroundColor: theme.colors.inputBackground },
+  policyOptionActive: { borderColor: theme.colors.primaryDark, backgroundColor: theme.colors.primaryDark },
+  policyText: { ...theme.typography.caption, marginLeft: 6, color: theme.colors.text },
+  policyTextActive: { color: '#FFFFFF' },
 });

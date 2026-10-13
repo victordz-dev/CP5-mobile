@@ -9,13 +9,17 @@ export type ChatMessage = {
   senderId: string;
   text: string;
   target: MessageTarget;
-  mentionedUserIds?: string[];
+  mentionedUserIds: string[];
   createdAt: number;
 };
 
 export type DirectConversation = {
   id: string;
   type: 'direct';
-  participants: [string, string];
+  participantIds: [string, string];
+  notificationPolicy?: 'disabled';
   createdAt: number;
+  updatedAt?: number;
 };
+
+export type ChatMessageDraft = Omit<ChatMessage, 'id' | 'senderId' | 'createdAt'>;
