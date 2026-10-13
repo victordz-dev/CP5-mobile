@@ -26,6 +26,7 @@ server/.env.*
 !server/.env.example
 *.json
 !package.json
+!package-lock.json
 !app.json
 !eas.json
 !firebase.json
@@ -40,4 +41,4 @@ server/.env.*
 
 expo-env.d.ts
 .firebase-rules-audit.md
-TESTE_LOCAL_E_BUILD_APK.md
+# TESTE_LOCAL_E_BUILD_APK.md
