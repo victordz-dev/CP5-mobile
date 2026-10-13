@@ -9,5 +9,9 @@ export default function IndexScreen() {
     return <Loading message="Recuperando sua sessao..." />;
   }
 
-  return <Redirect href={user && profile ? '/(main)/conversations' : '/(auth)/login'} />;
+  if (user && profile) {
+    return <Redirect href="/(main)/conversations" />;
+  }
+
+  return <Redirect href={user ? '/(auth)/register' : '/(auth)/login'} />;
 }

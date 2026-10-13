@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { register, rollbackRegistration } from '../../services/authService';
+import { register } from '../../services/authService';
 import { createUserProfile } from '../../services/userService';
 import { uploadImageAsync } from '../../services/storageService';
 import { ErrorMessage } from '../../components/ErrorMessage';
@@ -78,14 +78,12 @@ export default function RegisterScreen() {
     }
 
     let createdUid: string | null = user?.uid ?? null;
-    let createdAccount = false;
     try {
       setLoading(true);
       setError('');
       if (!createdUid) {
         const credential = await register(email, password);
         createdUid = credential.user.uid;
-        createdAccount = true;
       }
       const photoUrl = await uploadImageAsync(photoUri, `profiles/${createdUid}`);
       await createUserProfile(createdUid, {
@@ -96,7 +94,6 @@ export default function RegisterScreen() {
         photoUrl,
       });
     } catch (registrationError: unknown) {
-      if (createdUid && createdAccount) await rollbackRegistration(createdUid);
       setError(registrationError instanceof Error
         ? registrationError.message
         : 'Não foi possível concluir o cadastro. Verifique a conexão.');
