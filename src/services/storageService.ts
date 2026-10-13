@@ -38,20 +38,23 @@ export const uploadImageAsync = async (uri: string, path: string): Promise<strin
   const { client, bucket } = getStorageClient();
 
   const response = await fetch(uri);
-  const blob = await response.blob();
-  const contentType = blob.type.toLowerCase() || 'image/jpeg';
+  if (!response.ok) {
+    throw new Error('N\u00e3o foi poss\u00edvel ler a imagem selecionada.');
+  }
+  const contentType = response.headers.get('content-type')?.toLowerCase() || 'image/jpeg';
+  const imageData = await response.arrayBuffer();
 
   if (!contentType.startsWith('image/')) {
     throw new Error('Selecione um arquivo de imagem válido.');
   }
-  if (blob.size <= 0 || blob.size > maxImageBytes) {
+  if (imageData.byteLength <= 0 || imageData.byteLength > maxImageBytes) {
     throw new Error('A imagem deve ter no máximo 10 MB.');
   }
 
   const objectPath = buildObjectPath(path, contentType);
   const { error } = await client.storage.from(bucket).upload(
     objectPath,
-    await blob.arrayBuffer(),
+    imageData,
     {
       cacheControl: '31536000',
       contentType,
