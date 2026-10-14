@@ -41,8 +41,6 @@ firebase.json        manifesto de deploy das regras Firebase
 supabase-storage-policy.sql  política mínima de upload das fotos
 app.json             configuração nativa declarativa (CNG)
 eas.json             perfis de development, preview e production
-TESTE_LOCAL_E_BUILD_APK.md  roteiro de validação e geração do APK
-CONFIGURACAO_FIREBASE_FCM_EAS.md  configuração Firebase, FCM, EAS e Render
 ```
 
 As pastas `android/` e `ios/` são geradas por Continuous Native Generation e não são versionadas. Alterações nativas devem ser feitas em `app.json` ou por config plugins e aplicadas em um novo prebuild/build.
@@ -57,7 +55,9 @@ cp .env.example .env
 npx expo start
 ```
 
-O `firebaseConfig.json`, `google-services.json` e `GoogleService-Info.plist` contêm apenas configuração pública obrigatória para avaliação e SDKs nativos e correspondem ao mesmo projeto Firebase. O aplicativo JavaScript lê do `.env` as variáveis `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_FIREBASE_*` e `EXPO_PUBLIC_SUPABASE_*` documentadas no `.env.example`. O app não possui fallback de URL ou bucket no código e rejeita URLs sem HTTPS. Nunca coloque conta de serviço ou chave privada no app.
+Depois de copiar `.env.example` para `.env`, preencha as variáveis `EXPO_PUBLIC_FIREBASE_*` com os valores públicos correspondentes de `firebaseConfig.json`, configure `EXPO_PUBLIC_API_URL` com `https://cp5-mobile.onrender.com` e informe os dados públicos do Supabase Storage nas variáveis `EXPO_PUBLIC_SUPABASE_*`.
+
+O `firebaseConfig.json`, `google-services.json` e `GoogleService-Info.plist` contêm apenas configurações públicas obrigatórias para avaliação e para os SDKs cliente e nativos. Os três arquivos correspondem ao mesmo projeto Firebase. O aplicativo JavaScript lê as configurações do `.env`; não há fallback de URL, projeto ou bucket no código, e URLs de serviços sem HTTPS são rejeitadas. Nunca coloque conta de serviço, chave privada, `service_role`, senha ou token administrativo no aplicativo.
 
 O acesso às rotas principais só é liberado depois que `users/{uid}` contém o perfil completo. Se o app for fechado durante o cadastro, o próximo login oferece a retomada do perfil; listeners de conversa e registro de push não são iniciados durante esse provisionamento.
 
@@ -68,6 +68,14 @@ npm run lint
 npm run typecheck
 npm run check
 ```
+
+## APK Android para avaliação
+
+O APK final está disponível na página de [Releases do projeto](https://github.com/victordz-dev/CP5-mobile/releases/latest). Baixe o arquivo `.apk` anexado à versão mais recente e instale-o em um dispositivo Android físico. Caso o Android bloqueie a instalação, autorize temporariamente a instalação de aplicativos provenientes do navegador ou gerenciador de arquivos utilizado no download.
+
+O APK é gerado com o perfil `preview` de `eas.json` e já contém as configurações públicas incorporadas durante o EAS Build. Não é necessário instalar Node.js, executar o Metro ou iniciar a API localmente para avaliar essa versão. A API de notificações utilizada pelo APK permanece publicada em `https://cp5-mobile.onrender.com`.
+
+Para validar push em primeiro plano, segundo plano e com o aplicativo fechado, conceda a permissão de notificações solicitada no primeiro acesso e utilize duas contas em dispositivos compatíveis.
 
 ## Configuração do Firebase
 
@@ -87,7 +95,7 @@ npx firebase-tools@latest login
 npx firebase-tools@latest deploy --only firestore:rules,database --project cp05-d6f00
 ```
 
-`storage.rules` mantém o Firebase Storage fechado porque as imagens usam Supabase; não inclua `storage` no deploy enquanto não existir um bucket Firebase provisionado.
+O Firebase Storage não é utilizado por este projeto e, por isso, não existe configuração de Storage em `firebase.json`. As imagens são armazenadas exclusivamente no Supabase Storage; o Firebase mantém apenas suas URLs HTTPS.
 
 Para testar as regras com os emuladores:
 
@@ -113,19 +121,38 @@ O app solicita acesso à galeria, trata a recusa, valida tipo/tamanho e grava so
 
 Notificações remotas não devem ser validadas no Expo Go. O projeto inclui `expo-dev-client`, `expo-notifications`, `expo-constants`, o plugin de notificações, `projectId` EAS e perfis no `eas.json`.
 
-O `.env` local não é enviado ao EAS Build. Cadastre `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` e `EXPO_PUBLIC_SUPABASE_BUCKET` nos ambientes `development`, `preview` e `production` do projeto EAS (pela dashboard ou por `npx eas-cli@latest env:set`). Os perfis do `eas.json` já selecionam o ambiente correspondente. Essas variáveis são incorporadas ao aplicativo e devem conter somente valores públicos; nunca use `service_role`. Consulte `TESTE_LOCAL_E_BUILD_APK.md` e `CONFIGURACAO_FIREBASE_FCM_EAS.md` para o procedimento completo.
+O `.env` local não é enviado ao EAS Build. Cadastre todas as variáveis abaixo nos ambientes `development`, `preview` e `production` do projeto EAS, pela dashboard ou por `npx eas-cli@latest env:set`:
+
+```text
+EXPO_PUBLIC_API_URL
+EXPO_PUBLIC_FIREBASE_API_KEY
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN
+EXPO_PUBLIC_FIREBASE_DATABASE_URL
+EXPO_PUBLIC_FIREBASE_PROJECT_ID
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+EXPO_PUBLIC_FIREBASE_APP_ID
+EXPO_PUBLIC_SUPABASE_URL
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+EXPO_PUBLIC_SUPABASE_BUCKET
+```
+
+Copie os valores Firebase de `firebaseConfig.json`; use `https://cp5-mobile.onrender.com` em `EXPO_PUBLIC_API_URL`; e obtenha URL, chave **publishable** e nome do bucket no projeto Supabase. Os perfis de `eas.json` já selecionam o ambiente correspondente. Essas variáveis são incorporadas ao aplicativo e devem conter somente valores públicos. Nunca configure `FIREBASE_PRIVATE_KEY`, uma chave `service_role` ou qualquer outro segredo como variável `EXPO_PUBLIC_*`.
 
 ```bash
 # autenticar e conferir credenciais
 npx eas-cli@latest login
 npx eas-cli@latest credentials
 
-# builds internos para aparelhos físicos
+# APK Android autônomo para avaliação
+npx eas-cli@latest build --profile preview --platform android
+
+# development builds para depuração com o Metro
 npx eas-cli@latest build --profile development --platform android
 npx eas-cli@latest build --profile development --platform ios
 ```
 
-No Android, envie uma conta de serviço FCM V1 ao EAS e instale o development build em um aparelho físico. No iOS, registre um aparelho físico, use uma conta Apple Developer paga e configure a chave APNs solicitada pelo EAS. Depois de instalar o binário, execute `npx expo start`.
+No Android, envie uma conta de serviço FCM V1 ao EAS e instale o APK `preview` ou o development build em um aparelho físico. O APK `preview` é autônomo; somente o development build exige `npx expo start`. No iOS, registre um aparelho físico, use uma conta Apple Developer paga e configure a chave APNs solicitada pelo EAS.
 
 É obrigatório reconstruir o app depois de alterar `app.json`, instalar/atualizar um módulo nativo ou atualizar o SDK. Push em segundo plano/fechado, FCM/APNs e a abertura da conversa ao tocar na notificação precisam ser comprovados em ambiente compatível antes da entrega.
 
@@ -152,7 +179,7 @@ npm run build
 npm start
 ```
 
-No Render, configure manualmente o serviço com raiz `server`, build `npm ci && npm run build`, start `npm start`, Node 22.13 e health check `/health`. Cadastre `FIREBASE_PROJECT_ID`, `FIREBASE_DATABASE_URL`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` e `CRON_SECRET` exclusivamente como segredos. `EXPO_ACCESS_TOKEN` é opcional e só é necessário se a segurança aprimorada do Expo Push estiver habilitada. Agende uma chamada autenticada a `/notifications/receipts` para processar tickets e desativar tokens inválidos. O passo a passo detalhado está em `CONFIGURACAO_FIREBASE_FCM_EAS.md`.
+No Render, configure manualmente o serviço com raiz `server`, build `npm ci && npm run build`, start `npm start`, Node 22.13 e health check `/health`. Cadastre `FIREBASE_PROJECT_ID`, `FIREBASE_DATABASE_URL`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` e `CRON_SECRET` exclusivamente como segredos. `EXPO_ACCESS_TOKEN` é opcional e só é necessário se a segurança aprimorada do Expo Push estiver habilitada. Agende uma chamada autenticada a `POST /notifications/receipts`, enviando `CRON_SECRET` no cabeçalho `x-cron-secret`, para processar tickets e desativar tokens inválidos.
 
 No logout, o app desativa primeiro o token Expo Push do aparelho e só então encerra a sessão. Se essa desassociação falhar, o logout é interrompido e a interface pede nova tentativa, evitando que um aparelho compartilhado continue recebendo mensagens da conta anterior. Uma rotação de token também desativa o documento antigo antes de registrar o novo.
 
@@ -173,6 +200,7 @@ As verificações automatizadas disponíveis são:
 
 ```bash
 npm run check
+npm run test:firebase-rules
 npm run test:api
 cd server && npm run typecheck && npm test
 ```
