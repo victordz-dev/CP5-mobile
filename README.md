@@ -205,13 +205,20 @@ npm run test:api
 cd server && npm run typecheck && npm test
 ```
 
-Antes da apresentação, anexar nesta seção evidências reais — sem placeholders — dos seguintes cenários:
+### Galeria de evidências
 
-- telas de login, cadastro, lista, conversa direta, grupo e perfil;
-- dois usuários reais trocando mensagens;
-- disputa simultânea pela última vaga do grupo;
-- quatro políticas de push com destinatários diferentes;
-- push recebido com app aberto, em segundo plano e fechado;
-- execução em Android; a validação física em iOS foi dispensada pelo professor porque a equipe não possui o equipamento necessário.
-
-Essas evidências físicas ainda não estão no repositório e, por isso, os itens correspondentes permanecem desmarcados no checklist.
+<p align="center">
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.39.01.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.41.16.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.41.46.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.42.02.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.42.42.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.46.13.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.46.41.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.48.16.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.48.38.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.50.12.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.51.28.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.52.06.jpeg" width="30%" />
+  <img src="docs/evidencias/WhatsApp%20Image%202026-10-13%20at%2021.52.47.jpeg" width="30%" />
+</p>
